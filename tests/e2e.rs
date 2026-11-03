@@ -388,7 +388,10 @@ async fn http_api_serves_chat() {
 #[tokio::test(flavor = "multi_thread")]
 async fn long_sessions_compact_but_keep_current_request() {
     let env = Env::new().await;
-    env.configure("openai", "context_size = 8192\nmax_tokens = 1024");
+    env.configure(
+        "openai",
+        "context_size = 8192\nmin_context_size = 8192\nmax_tokens = 1024",
+    );
     let filler = "lorem ipsum dolor sit amet ".repeat(120);
     let mut sid = String::new();
     for i in 0..5 {

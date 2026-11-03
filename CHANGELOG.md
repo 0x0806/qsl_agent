@@ -52,6 +52,12 @@ test suite (`build-test/`).
 32. On small context windows, compaction could summarise away the *current* request, and the summary was lost on `--continue`.
 33. Streamed text wrapped mid-word.
 
+### Context sizing (follow-up)
+
+- `context_size = 0` (new default) auto-sizes the window per model **and** machine: the model maximum, capped at `max_context_size` (256K) and by free RAM + VRAM, with the KV-cache cost computed from the model architecture (hybrid-attention aware).
+- New `min_context_size` floor (default 32K) for agentic work; smaller explicit values are raised to it. Warnings with concrete fixes appear in the banner, on `/model` switches, in `--health-check`, and on stderr in one-shot mode.
+- LM Studio / llama.cpp: the server's real loaded context is detected (`/api/v0/models`, `/props`), with guidance when it is too small.
+
 ### Improvements
 
 1. **Live streaming** of tokens (OpenAI SSE and Ollama NDJSON) inside the classic frames, with markdown-aware styling for headings, code fences and quotes, and word-aware wrapping.

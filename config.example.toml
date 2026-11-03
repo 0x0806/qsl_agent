@@ -23,7 +23,10 @@ obsidian_vault_path = ""
 # Generation
 temperature = 0.2
 max_tokens = 4096          # reply budget (capped at 1/4 of the context window)
-context_size = 16384       # num_ctx; clamped to the model's maximum when Ollama reports it
+context_size = 0           # 0 = auto: largest window the model supports AND this machine's
+                           #     free RAM+VRAM fits (KV cost computed from the model architecture)
+min_context_size = 32768   # agentic floor; explicit smaller values are raised to this
+max_context_size = 262144  # ceiling for auto (bigger windows cost memory and speed)
 stream = true              # live token streaming
 show_reasoning = true      # show <think>/reasoning output (/think on|off)
 

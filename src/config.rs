@@ -82,6 +82,8 @@ pub struct Config {
     pub obsidian_vault_path: PathBuf,
     pub temperature: f32,
     pub max_tokens: u32,
+    /// Context window (num_ctx). 0 = auto: largest that the model supports
+    /// and this machine's memory fits, within min/max below.
     pub context_size: u32,
     /// Legacy switch; `approval_mode` takes precedence when set.
     pub auto_approve_commands: bool,
@@ -89,6 +91,10 @@ pub struct Config {
     pub command_timeout_secs: u64,
 
     // ---- v0.5 keys ---------------------------------------------------------
+    /// Floor for the context window; agentic work needs room for tool output.
+    pub min_context_size: u32,
+    /// Ceiling for auto mode (larger windows cost memory and speed).
+    pub max_context_size: u32,
     pub approval_mode: Option<ApprovalMode>,
     /// Bearer token for remote OpenAI-compatible endpoints (or `QSL_API_KEY`).
     pub api_key: Option<String>,
@@ -130,7 +136,9 @@ impl Default for Config {
             obsidian_vault_path: PathBuf::new(),
             temperature: 0.2,
             max_tokens: 4096,
-            context_size: 16384,
+            context_size: 0,
+            min_context_size: 32_768,
+            max_context_size: 262_144,
             auto_approve_commands: false,
             max_react_steps: 35,
             command_timeout_secs: 60,
@@ -247,7 +255,13 @@ impl Config {
         }
         self.temperature = self.temperature.clamp(0.0, 2.0);
         self.max_tokens = self.max_tokens.clamp(256, 131_072);
-        self.context_size = self.context_size.clamp(2048, 2_097_152);
+        self.min_context_size = self.min_context_size.clamp(2048, 1_048_576);
+        self.max_context_size = self
+            .max_context_size
+            .clamp(self.min_context_size, 2_097_152);
+        if self.context_size != 0 {
+            self.context_size = self.context_size.clamp(2048, 2_097_152);
+        }
         self.max_react_steps = self.max_react_steps.clamp(1, 500);
         self.command_timeout_secs = self.command_timeout_secs.clamp(1, 86_400);
         self.request_timeout_secs = self.request_timeout_secs.clamp(10, 86_400);

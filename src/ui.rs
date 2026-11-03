@@ -111,7 +111,7 @@ pub struct BannerInfo<'a> {
     pub provider: &'a str,
     pub endpoint: &'a str,
     pub model: &'a str,
-    pub context: u32,
+    pub context: &'a str,
     pub approval: &'a str,
     pub skills: usize,
     pub tools: usize,
@@ -176,9 +176,7 @@ pub fn banner(b: &BannerInfo<'_>) {
         crate::provider::ModelTier::from_model_name(model).label(),
         |s| s.bright_cyan(),
     );
-    kv("Context:", &format!("{} tokens", b.context), |s| {
-        s.bright_cyan()
-    });
+    kv("Context:", b.context, |s| s.bright_cyan());
     kv("Approval:", b.approval, |s| s.green().bold());
     kv(
         "Skills:",

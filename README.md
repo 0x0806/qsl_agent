@@ -77,7 +77,7 @@ qsl-agent "summarise the README in this folder"   # one-shot task
 - **Live streaming UI**: tokens, reasoning (`<think>`, `reasoning_content`, Ollama `thinking`) and tool activity render live in box-drawing frames, with no emojis.
 - **Adaptive ReAct engine**: parallel read-only tool calls, a repetition guard, a step budget with interactive extension, self-healing for truncated tool JSON, and a guaranteed final answer.
 - **Works with any local model**: native tool calling where supported, automatic fallback to the Hermes `<tool_call>` text protocol where not, plus argument repair and alias handling for small models.
-- **Real context management**: Ollama's native API with a true `num_ctx` (auto-clamped to the model's maximum), LLM summarisation of older turns, and repair of interrupted tool calls.
+- **Real context management**: Ollama's native API with a true `num_ctx`, auto-sized per model and machine with a 32K agentic minimum, LLM summarisation of older turns, and repair of interrupted tool calls.
 - **Sessions**: every conversation is saved; resume with `-C` or `/resume`; `/undo`, `/retry`, `/export`; search past sessions.
 - **Checkpoints**: every file write or edit is backed up first, so `/rollback` undoes the last turn's file changes.
 - **3-tier SecurityGuard**: catastrophic commands are hard-blocked, risky ones always reviewed; paths are symlink- and `..`-safe; secrets are redacted.
@@ -358,7 +358,9 @@ The config lives in `~/.config/qsl-agent/config.toml` (or `--config` / `$QSL_CON
 ```toml
 provider = "ollama"            # ollama | lmstudio | custom
 model = ""                     # empty = auto-detect
-context_size = 16384           # num_ctx, clamped to the model's maximum
+context_size = 0               # 0 = auto-size (see "Context window sizing" below)
+min_context_size = 32768       # agentic floor
+max_context_size = 262144      # ceiling for auto
 max_tokens = 4096              # reply budget (capped at 1/4 of the context)
 approval_mode = "ask"          # ask | always | strict | yolo
 max_react_steps = 35
@@ -368,6 +370,19 @@ allow_web = true
 stream = true
 show_reasoning = true
 ```
+
+### Context window sizing
+
+Agentic work needs a large window: the system prompt and tool schemas alone take about 4K tokens, and every file read or command output adds more. QSL therefore never runs below `min_context_size` (default **32K**). Explicit smaller values are raised to it.
+
+With `context_size = 0` (the default), QSL picks the largest window that:
+1. the model supports (read from Ollama's `/api/show`),
+2. is at most `max_context_size` (default 256K), and
+3. fits in this machine's free RAM + GPU memory. The KV-cache cost per token is computed from the model's architecture, so hybrid models such as Qwen3.5 (about 32 KB/token) get far more context than dense ones such as Llama-3.1-8B (about 128 KB/token).
+
+One default is therefore safe on an 8 GB laptop and generous on a workstation. The banner and `--health-check` show the chosen size and why. Measured on an RTX 3050 6 GB laptop with Qwen3.5-9B Q4: 16K = 6.0 GB / 32 tok/s, 64K = 7.8 GB / 27 tok/s, 256K = 14.9 GB / 21 tok/s.
+
+If the window falls below the minimum, QSL warns and suggests a fix: free memory, use a smaller quantization, set `OLLAMA_KV_CACHE_TYPE=q8_0` with `OLLAMA_FLASH_ATTENTION=1` on the Ollama server (halves KV memory), or pick a long-context model. LM Studio, llama.cpp and vLLM fix the context when the model is loaded, so QSL reads the server's actual value and tells you how to raise it (LM Studio "Context Length", `llama-server -c 65536`, `vllm --max-model-len 65536`).
 
 Environment overrides: `QSL_PROVIDER`, `QSL_MODEL`, `QSL_ENDPOINT`, `QSL_API_KEY`, `QSL_APPROVAL`, `QSL_CONFIG`, `OBSIDIAN_VAULT`, `NO_COLOR`. An invalid config is backed up to `config.toml.bak` and replaced with defaults, with a warning showing the parse error.
 
@@ -396,7 +411,7 @@ Requirements: Rust 1.89+, plus `curl` and `python3` for the smoke tests. The `ta
 | `cannot reach local AI engine` | Start the engine (`ollama serve`, LM Studio → Start Server) and run `qsl-agent --health-check` |
 | `no model configured and none detected` | `ollama pull qwen2.5-coder:7b`, or `/model <name>` |
 | Model ignores tools / prints JSON | Handled automatically (text protocol fallback). Prefer tool-capable models such as Qwen 2.5/3 Coder or Llama 3.1+ |
-| Answers forget earlier context | Raise `context_size` (the engine must have the VRAM); check the `ctx` value in the status line |
+| Answers forget earlier context / context warning | Check `--health-check` row 3. Free RAM/VRAM, set `OLLAMA_KV_CACHE_TYPE=q8_0`, or use a long-context model; for LM Studio / llama.cpp, raise the server's context length |
 | `[SECURITY BLOCKED]` | The command matched a hard-deny rule; run it yourself if you really mean it |
 | `DENIED ... non-interactive mode` | Risky commands need a human; run interactively, or use `--yolo` in a sandbox |
 | Slow first token | Large prompt processing on small GPUs; the stable system prompt lets the engine cache it after the first step |

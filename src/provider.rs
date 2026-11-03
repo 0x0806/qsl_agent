@@ -413,26 +413,96 @@ impl LlmClient {
             .cloned()
     }
 
-    /// Maximum context length reported by Ollama's `/api/show`.
-    pub async fn model_context_length(&self, model: &str) -> Option<u32> {
-        if self.api != ApiStyle::Ollama || model.is_empty() {
-            return None;
-        }
-        let url = format!("{}/api/show", self.server_root);
+    async fn get_json(&self, url: &str) -> Option<Value> {
         let res = self
-            .auth(self.http.post(&url))
-            .json(&json!({ "model": model }))
+            .auth(self.http.get(url))
             .timeout(Duration::from_secs(5))
             .send()
             .await
             .ok()?;
-        let v: Value = res.json().await.ok()?;
-        v["model_info"]
-            .as_object()?
-            .iter()
-            .find(|(k, _)| k.ends_with(".context_length"))
-            .and_then(|(_, v)| v.as_u64())
-            .map(|n| n.min(u32::MAX as u64) as u32)
+        if !res.status().is_success() {
+            return None;
+        }
+        let text = res.text().await.ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    /// Ollama model metadata used to size the context window: maximum
+    /// context, KV-cache bytes per token, weight size and current residency.
+    pub async fn model_meta(&self, model: &str) -> crate::sizing::ModelMeta {
+        let mut meta = crate::sizing::ModelMeta::default();
+        if self.api != ApiStyle::Ollama || model.is_empty() {
+            return meta;
+        }
+        let url = format!("{}/api/show", self.server_root);
+        let show: Option<Value> = async {
+            let res = self
+                .auth(self.http.post(&url))
+                .json(&json!({ "model": model }))
+                .timeout(Duration::from_secs(5))
+                .send()
+                .await
+                .ok()?;
+            let text = res.text().await.ok()?;
+            serde_json::from_str(&text).ok()
+        }
+        .await;
+        if let Some(info) = show.as_ref().and_then(|v| v["model_info"].as_object()) {
+            meta.max_ctx = info
+                .iter()
+                .find(|(k, _)| k.ends_with(".context_length"))
+                .and_then(|(_, v)| v.as_u64())
+                .map(|n| n.min(u32::MAX as u64) as u32);
+            meta.kv_bytes_per_token = crate::sizing::kv_bytes_per_token(info);
+        }
+        if let Some(tags) = self
+            .get_json(&format!("{}/api/tags", self.server_root))
+            .await
+        {
+            meta.weights_bytes = tags["models"]
+                .as_array()
+                .and_then(|a| a.iter().find(|m| m["name"].as_str() == Some(model)))
+                .and_then(|m| m["size"].as_u64());
+        }
+        if let Some(ps) = self.get_json(&format!("{}/api/ps", self.server_root)).await {
+            meta.resident_bytes = ps["models"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|m| m["size"].as_u64()).sum())
+                .unwrap_or(0);
+        }
+        meta
+    }
+
+    /// Context window actually loaded by an OpenAI-compatible server, where
+    /// the server (not the request) decides it: llama.cpp `/props`,
+    /// LM Studio `/api/v0/models`.
+    pub async fn server_context(&self, model: &str) -> Option<u32> {
+        if self.api == ApiStyle::Ollama {
+            return None;
+        }
+        if let Some(v) = self.get_json(&format!("{}/props", self.server_root)).await {
+            if let Some(n) = v["default_generation_settings"]["n_ctx"]
+                .as_u64()
+                .or(v["n_ctx"].as_u64())
+            {
+                return Some(n as u32);
+            }
+        }
+        if let Some(v) = self
+            .get_json(&format!("{}/api/v0/models", self.server_root))
+            .await
+        {
+            let models = v["data"].as_array()?;
+            let m = models
+                .iter()
+                .find(|m| m["id"].as_str() == Some(model))
+                .or(models.first())?;
+            return m["loaded_context_length"]
+                .as_u64()
+                .or(m["max_context_length"].as_u64())
+                .map(|n| n as u32);
+        }
+        None
     }
 
     pub async fn health_check(&self) -> Result<String, ProviderError> {

@@ -10,6 +10,7 @@ mod provider;
 mod security;
 mod server;
 mod session;
+mod sizing;
 mod skills;
 mod skills_builtin;
 mod tools;
@@ -73,7 +74,7 @@ struct Args {
     #[arg(short, long)]
     temperature: Option<f32>,
 
-    /// Context window in tokens
+    /// Context window in tokens (0 = auto-size for this model and machine)
     #[arg(short = 'c', long)]
     context_size: Option<u32>,
 
@@ -359,6 +360,12 @@ async fn main() {
             std::process::exit(1);
         }
         return;
+    }
+
+    if let Some(w) = agent.context_warning() {
+        if one_shot {
+            eprintln!("warning: context: {w}");
+        }
     }
 
     if let Some(prompt) = prompt {

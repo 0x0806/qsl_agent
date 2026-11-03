@@ -280,8 +280,16 @@ async fn run_and_render(agent: &mut Agent, input: &str) {
     }
 }
 
+fn context_label(agent: &Agent) -> String {
+    match &agent.ctx_plan {
+        Some(p) => format!("{} tokens ({})", agent.num_ctx, p.reason),
+        None => format!("{} tokens", agent.num_ctx),
+    }
+}
+
 fn print_banner(agent: &Agent, resumed: usize) {
     let endpoint = agent.client.endpoint();
+    let context = context_label(agent);
     let vault = agent.memory.vault_path.display().to_string();
     let approval = agent.approval.mode.describe();
     let skills = agent
@@ -294,7 +302,7 @@ fn print_banner(agent: &Agent, resumed: usize) {
         provider: &agent.config.provider,
         endpoint: &endpoint,
         model: &agent.config.model,
-        context: agent.num_ctx,
+        context: &context,
         approval,
         skills,
         tools: agent.tool_specs(0).len(),
@@ -302,6 +310,9 @@ fn print_banner(agent: &Agent, resumed: usize) {
         session: &agent.meta.id,
         resumed,
     });
+    if let Some(w) = agent.context_warning() {
+        ui::warn(&format!("Context: {w}"));
+    }
 }
 
 pub async fn run_health_check(agent: &Agent) -> bool {
@@ -384,11 +395,22 @@ pub async fn run_health_check(agent: &Agent) -> bool {
     } else {
         "text tool protocol (fallback)"
     };
-    row(
-        "[3/7] Context / tools",
-        "CONFIGURED [OK]".green().bold(),
-        format!("{} tokens, {native}", agent.num_ctx),
-    );
+    match agent.context_warning() {
+        None => row(
+            "[3/7] Context / tools",
+            "CONFIGURED [OK]".green().bold(),
+            format!("{}, {native}", context_label(agent)),
+        ),
+        Some(w) => {
+            ok = false;
+            row(
+                "[3/7] Context / tools",
+                "TOO SMALL [WARN]".yellow().bold(),
+                format!("{}, {native}", context_label(agent)),
+            );
+            ui::plain(&format!("│        {}", w.yellow()));
+        }
+    }
 
     let vault = &agent.memory.vault_path;
     if vault.is_dir() && agent.memory.memories_file().exists() {
@@ -560,6 +582,9 @@ async fn handle_command(input: &str, agent: &mut Agent) -> bool {
                     chosen.bold(),
                     agent.num_ctx
                 ));
+                if let Some(w) = agent.context_warning() {
+                    ui::warn(&format!("Context: {w}"));
+                }
             }
         }
         "/provider" => {
