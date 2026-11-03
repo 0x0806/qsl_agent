@@ -1,32 +1,55 @@
 [package]
-name = "qsl_agent"
-version = "0.2.0"
+name = "qsl-agent"
+version = "0.4.0"
 edition = "2021"
-authors = ["Quantum Secular Labs <https://quantumseclabs.com/>"]
-homepage = "https://quantumseclabs.com/"
-description = "QSL Agent — Ultra-lightweight, rapid Rust autonomous AI agent for 100% local inference with Ollama, LM Studio, GGUF models, and Obsidian-backed persistent memory (2026)"
-license-file = "LICENSE"
-repository = "https://github.com/qsl-team/qsl-agent"
-keywords = ["ai", "agent", "local", "ollama", "rust"]
+rust-version = "1.83"
 
 [dependencies]
-tokio = { version = "1.40", features = ["full"] }
-reqwest = { version = "0.12", features = ["json", "stream"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-clap = { version = "4.5", features = ["derive"] }
-colored = "2.1"
-rustyline = "14.0"
-dirs = "5.0"
-chrono = "0.4"
-walkdir = "2.5"
+tokio = { version = "1.42", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+reqwest = { version = "0.12", features = ["json", "stream", "http2", "rustls-tls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "0.8"
-regex = "1.10"
-futures-util = "0.3"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.16", default-features = false }
+regex = "1"
+mimalloc = { version = "0.1", default-features = false }
+futures = "0.3"
+bytes = "1"
+eventsource-stream = "0.2"
+tiktoken-rs = "0.6"
+moka = { version = "0.12", features = ["future"] }
+backoff = { version = "0.4", features = ["tokio"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+axum = "0.7"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+insta = { version = "1", features = ["json"] }
+tempfile = "3"
+
+[features]
+default = []
+console = []
 
 [profile.release]
-opt-level = 3
-lto = true
-strip = true
+lto = "fat"
 codegen-units = 1
 panic = "abort"
+strip = "symbols"
+opt-level = 3
+
+[profile.dev]
+opt-level = 1
+
+[[bench]]
+name = "agent_turn"
+harness = false
