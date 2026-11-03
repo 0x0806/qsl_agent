@@ -1,4 +1,4 @@
-# QSL Agent (2026 Edition)
+# QSL Agent 
 
 <div align="center">
 
