@@ -70,6 +70,8 @@ pub struct Agent {
     http: reqwest::Client,
     pub interrupt: Interrupt,
     pub num_ctx: u32,
+    /// How `num_ctx` was chosen (and any warning), for banner / health check.
+    pub ctx_plan: Option<crate::sizing::Plan>,
     pub stats: Stats,
     turn_counter: u64,
     pub interactive: bool,
@@ -98,7 +100,12 @@ impl Agent {
             client: LlmClient::new(&config),
             approval: ApprovalManager::new(config.effective_approval()),
             store: SessionStore::new(state.join("sessions"), config.save_sessions),
-            num_ctx: config.context_size,
+            num_ctx: if config.context_size == 0 {
+                config.min_context_size
+            } else {
+                config.context_size.max(config.min_context_size)
+            },
+            ctx_plan: None,
             config,
             config_path,
             memory,
@@ -133,13 +140,28 @@ impl Agent {
         self.reset_system_prompt();
     }
 
+    /// Choose the context window for this model on this machine.
     async fn detect_context(&mut self) {
-        self.num_ctx = self.config.context_size;
-        if let Some(max) = self.client.model_context_length(&self.config.model).await {
-            if max >= 2048 && max < self.num_ctx {
-                self.num_ctx = max;
-            }
-        }
+        let limits = crate::sizing::Limits {
+            requested: self.config.context_size,
+            min: self.config.min_context_size,
+            max: self.config.max_context_size,
+        };
+        let plan = if self.client.api == crate::config::ApiStyle::Ollama {
+            let meta = self.client.model_meta(&self.config.model).await;
+            crate::sizing::plan(&limits, &meta, crate::sizing::available_memory_bytes())
+        } else {
+            let detected = self.client.server_context(&self.config.model).await;
+            crate::sizing::plan_server(&limits, &self.config.provider, detected)
+        };
+        tracing::info!(num_ctx = plan.num_ctx, reason = %plan.reason, "context window planned");
+        self.num_ctx = plan.num_ctx;
+        self.ctx_plan = Some(plan);
+    }
+
+    /// Warning to show the user when the context is below the agentic minimum.
+    pub fn context_warning(&self) -> Option<&str> {
+        self.ctx_plan.as_ref().and_then(|p| p.warning.as_deref())
     }
 
     // -----------------------------------------------------------------------
