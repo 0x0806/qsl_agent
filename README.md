@@ -298,7 +298,7 @@ chmod +x Releases/qsl-agent
 
 #### Compile & Strip
 ```bash
-git clone https://github.com/qsl-team/qsl-agent.git
+git clone https://github.com/0x0806/qsl_agent.git
 cd qsl-agent
 
 # Build fully optimized release binary
