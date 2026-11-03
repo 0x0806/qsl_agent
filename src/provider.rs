@@ -220,6 +220,9 @@ impl ProviderError {
             "exceeds the context",
             "context_length_exceeded",
             "prompt is too long",
+            "context size",
+            "exceed_context_size",
+            "n_ctx",
         ])
     }
 }
@@ -1308,6 +1311,11 @@ mod tests {
             body: String::new()
         }
         .retryable());
+        let e = ProviderError::Http {
+            status: 400,
+            body: "request (3326 tokens) exceeds the available context size (2048 tokens), try increasing it".into(),
+        };
+        assert!(e.context_overflow());
         let e = ProviderError::Http {
             status: 500,
             body: "unexpected end of JSON input".into(),

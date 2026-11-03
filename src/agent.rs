@@ -607,6 +607,14 @@ impl Agent {
                     step -= 1;
                     continue;
                 }
+                Err(e) if e.context_overflow() => {
+                    return Err(format!(
+                        "{e}\n  -> The engine's context window is smaller than QSL planned ({} tokens). \
+                         Check `qsl-agent --health-check`, an OLLAMA_CONTEXT_LENGTH override on the server, \
+                         or the server's own context setting (LM Studio / llama.cpp).",
+                        self.num_ctx
+                    ))
+                }
                 Err(e) => return Err(e.to_string()),
             };
             let (_, mut clean) = ui::extract_thought_and_response(&resp.content);
