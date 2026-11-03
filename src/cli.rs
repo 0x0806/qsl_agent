@@ -339,6 +339,17 @@ async fn handle_slash_command(cmd: &str, agent: &mut QslAgent) -> bool {
             agent.reset_context();
             println!("{} Session context cleared.", "[OK]".green());
         }
+        "/compact" => {
+            let before = agent.history.len();
+            agent.auto_compact_history(agent.config.context_size / 2);
+            let after = agent.history.len();
+            println!(
+                "{} Context compacted ({} messages -> {} messages). Headroom freed for long sessions.",
+                "[OK]".green(),
+                before,
+                after
+            );
+        }
         "/config" => {
             let serialized = toml::to_string_pretty(&agent.config).unwrap_or_default();
             println!("\n{}\n", serialized.dimmed());

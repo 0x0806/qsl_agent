@@ -55,6 +55,7 @@ impl ApprovalManager {
             tool_name,
             "execute_command"
                 | "write_file"
+                | "append_file"
                 | "edit_file"
                 | "obsidian_write"
                 | "obsidian_append"

@@ -54,6 +54,12 @@ impl UI {
         let model_col = format!("{:<10} {}", "Model:".bold().white(), model_display.yellow().bold());
         Self::print_row(&model_raw, &model_col, inner_width);
 
+        // Hardware & Parameter Tier
+        let tier = crate::provider::ModelTier::from_model_name(&model_display);
+        let tier_raw = format!("Tier:      {}", tier.display_label());
+        let tier_col = format!("{:<10} {}", "Tier:".bold().white(), tier.display_label().bright_cyan());
+        Self::print_row(&tier_raw, &tier_col, inner_width);
+
         // Approval Mode
         let app_raw = format!("Approval:  {}", approval_mode);
         let app_col = format!("{:<10} {}", "Approval:".bold().white(), approval_mode.green().bold());
@@ -139,13 +145,14 @@ impl UI {
                         details.push(("Command".to_string(), cmd.to_string()));
                     }
                 }
-                "write_file" => {
+                "write_file" | "append_file" => {
+                    let action_label = if name == "append_file" { "Appended" } else { "Payload" };
                     if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
                         details.push(("Target".to_string(), path.to_string()));
                     }
                     if let Some(content) = val.get("content").and_then(|v| v.as_str()) {
                         details.push((
-                            "Payload".to_string(),
+                            action_label.to_string(),
                             format!("{} bytes ({} lines)", content.len(), content.lines().count()),
                         ));
                     }

@@ -3,6 +3,65 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Duration;
 
+/// Model parameter tier classification for optimal hardware and context tuning
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModelTier {
+    /// Models <= 9B parameters (e.g. 3B, 7B, 8B, 9B): High-speed, compact KV cache
+    Small,
+    /// Models 10B - 34B parameters (e.g. 12B, 14B, 27B, 32B): Balanced reasoning powerhouse
+    Medium,
+    /// Models >= 35B parameters (e.g. 70B, 72B, 120B+): Deep enterprise reasoning, high VRAM
+    Large,
+}
+
+impl ModelTier {
+    pub fn from_model_name(name: &str) -> Self {
+        let lower = name.to_lowercase();
+        if lower.contains("70b")
+            || lower.contains("72b")
+            || lower.contains("67b")
+            || lower.contains("104b")
+            || lower.contains("110b")
+            || lower.contains("120b")
+            || lower.contains("236b")
+            || lower.contains("405b")
+            || lower.contains("large")
+        {
+            ModelTier::Large
+        } else if lower.contains("12b")
+            || lower.contains("13b")
+            || lower.contains("14b")
+            || lower.contains("27b")
+            || lower.contains("32b")
+            || lower.contains("33b")
+            || lower.contains("34b")
+            || lower.contains("35b")
+            || lower.contains("medium")
+        {
+            ModelTier::Medium
+        } else {
+            ModelTier::Small
+        }
+    }
+
+    pub fn display_label(&self) -> &'static str {
+        match self {
+            ModelTier::Small => "Small (<=9B) [High-Speed / Compact KV Cache]",
+            ModelTier::Medium => "Medium (10B-34B) [Balanced Workstation / 16K-32K Context]",
+            ModelTier::Large => "Large (>=35B) [Enterprise Reasoning / 32K+ Context & Adaptive Headroom]",
+        }
+    }
+
+    /// Optimal generation token headroom for adaptive context window sizing
+    pub fn optimal_headroom(&self, requested_max: u32) -> u32 {
+        match self {
+            ModelTier::Small => requested_max.min(2048).max(1024),
+            ModelTier::Medium => requested_max.min(4096).max(2048),
+            ModelTier::Large => requested_max.min(8192).max(4096),
+        }
+    }
+}
+
 /// A single message in a chat conversation (OpenAI-compatible format)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -59,9 +118,9 @@ pub struct LocalLlmClient {
 impl LocalLlmClient {
     pub fn new(endpoint: &str, provider_name: &str) -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(600)) // 10 min max for very large generations
+            .timeout(Duration::from_secs(1200)) // 20 min max to accommodate 70B models on CPU/GPU
             .connect_timeout(Duration::from_secs(10))
-            .pool_idle_timeout(Duration::from_secs(90))
+            .pool_idle_timeout(Duration::from_secs(120))
             .build()
             .unwrap_or_else(|_| Client::new());
 
@@ -107,13 +166,8 @@ impl LocalLlmClient {
             }
         }
 
-        // Fallback: OpenAI-compatible /v1/models
-        let models_url = if self.endpoint.ends_with("/v1") {
-            format!("{}/models", self.endpoint)
-        } else {
-            format!("{}/v1/models", self.endpoint)
-        };
-
+        // Standard OpenAI /v1/models fallback
+        let models_url = format!("{}/models", self.endpoint);
         let res = self
             .client
             .get(&models_url)
@@ -174,14 +228,19 @@ impl LocalLlmClient {
         {
             Ok(res) if res.status().is_success() => {
                 let text = res.text().await.unwrap_or_default();
-                Ok(format!("Provider '{}' is reachable at {}. Response: {}", self.provider_name, base_url, text.trim()))
+                Ok(format!(
+                    "Provider '{}' is reachable at {}. Response: {}",
+                    self.provider_name,
+                    base_url,
+                    text.trim()
+                ))
             }
             Ok(res) => Err(format!("Provider returned HTTP {}", res.status())),
             Err(e) => Err(format!("Cannot reach provider at {}: {}", base_url, e)),
         }
     }
 
-    /// Send a chat completion request to the local LLM
+    /// Send a chat completion request to the local LLM with adaptive context and tier optimization
     pub async fn chat(
         &self,
         model: &str,
@@ -197,15 +256,16 @@ impl LocalLlmClient {
             format!("{}/v1/chat/completions", self.endpoint)
         };
 
+        let tier = ModelTier::from_model_name(model);
         let total_chars: usize = messages
             .iter()
             .map(|m| m.content.as_deref().unwrap_or("").len())
             .sum();
-        let estimated_tokens = (total_chars / 4) as u32;
-        // Allocate context adaptively to speed up Ollama prompt evaluation
-        let adaptive_ctx = (estimated_tokens + max_tokens.min(2048))
-            .max(4096)
-            .min(context_size);
+        let prompt_tokens = (total_chars / 4) as u32;
+
+        let headroom = tier.optimal_headroom(max_tokens);
+        // Dynamic KV cache bounds: prevent CUDA OOM on 70B models while ensuring ample generation headroom
+        let adaptive_ctx = (prompt_tokens + headroom).clamp(4096, context_size);
 
         let mut payload = json!({
             "model": model,
@@ -214,7 +274,9 @@ impl LocalLlmClient {
             "max_tokens": max_tokens,
             "stream": false,
             "options": {
-                "num_ctx": adaptive_ctx
+                "num_ctx": adaptive_ctx,
+                "num_predict": max_tokens,
+                "temperature": temperature
             }
         });
 
@@ -239,7 +301,7 @@ impl LocalLlmClient {
                     )
                 } else if e.is_timeout() {
                     format!(
-                        "Request timed out to local AI engine at '{}'. The model may be loading or the context is too large.",
+                        "Request timed out to local AI engine at '{}'. If running a large model (70B+), inference may be compute-constrained.",
                         chat_url
                     )
                 } else {
@@ -275,5 +337,29 @@ impl LocalLlmClient {
             .map_err(|e| format!("Failed to deserialize ChatMessage: {}", e))?;
 
         Ok(message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_model_tier_classification() {
+        assert_eq!(ModelTier::from_model_name("llama3.2:3b"), ModelTier::Small);
+        assert_eq!(ModelTier::from_model_name("huihui-qwen35-9b-256k:latest"), ModelTier::Small);
+        assert_eq!(ModelTier::from_model_name("qwen2.5:7b"), ModelTier::Small);
+        assert_eq!(ModelTier::from_model_name("qwen2.5-coder:14b"), ModelTier::Medium);
+        assert_eq!(ModelTier::from_model_name("qwen2.5:32b"), ModelTier::Medium);
+        assert_eq!(ModelTier::from_model_name("llama3.3:70b"), ModelTier::Large);
+        assert_eq!(ModelTier::from_model_name("deepseek-r1:70b"), ModelTier::Large);
+        assert_eq!(ModelTier::from_model_name("qwen2.5:72b-instruct-q4_k_m"), ModelTier::Large);
+    }
+
+    #[test]
+    fn test_tier_headroom() {
+        assert_eq!(ModelTier::Small.optimal_headroom(4096), 2048);
+        assert_eq!(ModelTier::Medium.optimal_headroom(4096), 4096);
+        assert_eq!(ModelTier::Large.optimal_headroom(8192), 8192);
     }
 }

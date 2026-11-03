@@ -89,7 +89,8 @@ impl QslAgent {
              5. Security Guard actively blocks destructive commands. Do not attempt to bypass it.\n\
              6. Tool efficiency: execute tasks in the fewest, most direct tool calls. For file creation, verify content formatting and word count in memory before calling `write_file`, avoiding redundant verification commands (like `wc -w`) unless explicitly requested.\n\
              7. When executing multi-step tasks, reason through each step before acting.\n\
-             8. After completing a task, give a concise summary of what was done.\n",
+             8. After completing a task, give a concise summary of what was done.\n\
+             9. Large File Generation: Local inference engines enforce a strict max token limit per tool call (4096 tokens). Never attempt to emit massive monolithic files (>200 lines) in a single JSON argument, as output will be abruptly truncated by the engine's JSON parser. Instead, create modular architectures, scaffold files with clear structures, or construct code in focused modules.\n",
             current_time,
             current_dir,
             self.memory.vault_path.display(),
@@ -208,6 +209,9 @@ impl QslAgent {
 
         loop {
             step += 1;
+
+            // Prevent context window overflow in long sessions
+            self.auto_compact_history(self.config.context_size);
 
             // Approaching limit directive: inject warning when 3 steps remain
             if step == max_steps.saturating_sub(3) && step > 3 {
@@ -429,7 +433,51 @@ impl QslAgent {
                 let _ = io::stdout().flush();
             }
 
-            let response_msg = chat_result?;
+            let response_msg = match chat_result {
+                Ok(msg) => msg,
+                Err(err) if err.contains("unexpected end of JSON input") || err.contains("invalid tool call arguments") => {
+                    UI::render_tool_error(
+                        "engine_truncation",
+                        "Tool argument generation exceeded local engine token limit (truncated JSON). Engaging self-healing recovery...",
+                    );
+
+                    self.auto_compact_history(self.config.context_size / 2);
+
+                    self.history.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: Some(
+                            "The previous tool call exceeded the local token limit and was truncated by the local inference engine (unexpected end of JSON input). Please deliver your response in focused modular sections or provide a modular architectural scaffold rather than a massive single-shot block. Do not call write_file with more than 200 lines at once.".to_string(),
+                        ),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
+                    });
+
+                    // Recover by requesting clean text completion without tools
+                    let retry_result = self
+                        .client
+                        .chat(
+                            &self.config.model,
+                            &self.history,
+                            None,
+                            self.config.temperature,
+                            self.config.max_tokens,
+                            self.config.context_size,
+                        )
+                        .await;
+
+                    match retry_result {
+                        Ok(msg) => msg,
+                        Err(retry_err) => {
+                            return Err(format!(
+                                "Local AI model error [HTTP 500]: {}. Self-healing recovery attempt also failed: {}",
+                                err, retry_err
+                            ));
+                        }
+                    }
+                }
+                Err(err) => return Err(err),
+            };
 
             // Extract thought blocks (e.g. <think>...</think>) and render them
             if let Some(content) = &response_msg.content {
@@ -579,6 +627,46 @@ impl QslAgent {
         self.history.clear();
     }
 
+    /// Automatically compact conversation history to prevent context window overflow in long sessions
+    pub fn auto_compact_history(&mut self, context_limit: u32) {
+        let total_chars: usize = self
+            .history
+            .iter()
+            .map(|m| m.content.as_deref().unwrap_or("").len())
+            .sum();
+        let estimated_tokens = (total_chars / 4) as u32;
+
+        // If history exceeds 60% of context limit or has more than 20 messages, prune intermediate tool exchanges
+        if (estimated_tokens > (context_limit * 6 / 10) || self.history.len() > 20) && self.history.len() > 6 {
+            let sys_msg = self.history.first().cloned();
+            let user_msg = self.history.get(1).cloned();
+
+            let keep_count = 6;
+            let start = self.history.len().saturating_sub(keep_count);
+            let recent_slice = self.history[start..].to_vec();
+
+            let mut compacted = Vec::with_capacity(keep_count + 3);
+            if let Some(sys) = sys_msg {
+                compacted.push(sys);
+            }
+            if let Some(u) = user_msg {
+                compacted.push(u);
+            }
+            compacted.push(ChatMessage {
+                role: "system".to_string(),
+                content: Some(
+                    "[Context Compaction: Earlier intermediate tool execution history summarized to preserve context headroom for local inference.]"
+                        .to_string(),
+                ),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            });
+            compacted.extend(recent_slice);
+            self.history = compacted;
+        }
+    }
+
     /// Trim history to keep context size manageable
     #[allow(dead_code)]
     pub fn trim_history(&mut self, max_messages: usize) {
@@ -626,5 +714,44 @@ mod tests {
         let (thought, clean) = QslAgent::extract_thought_and_response(input);
         assert!(thought.is_some());
         assert_eq!(clean, "");
+    }
+
+    #[test]
+    fn test_auto_compact_history() {
+        let mut config = Config::default();
+        config.context_size = 4096;
+        let mut agent = QslAgent::new(config);
+
+        agent.history.push(ChatMessage {
+            role: "system".to_string(),
+            content: Some("System prompt".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        });
+        agent.history.push(ChatMessage {
+            role: "user".to_string(),
+            content: Some("Initial user prompt".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        });
+
+        for i in 0..25 {
+            agent.history.push(ChatMessage {
+                role: if i % 2 == 0 { "assistant".to_string() } else { "tool".to_string() },
+                content: Some(format!("Step output content {}", i)),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            });
+        }
+
+        assert_eq!(agent.history.len(), 27);
+        agent.auto_compact_history(4096);
+        assert!(agent.history.len() < 12);
+        assert_eq!(agent.history[0].role, "system");
+        assert_eq!(agent.history[1].role, "user");
+        assert!(agent.history[2].content.as_ref().unwrap().contains("Context Compaction"));
     }
 }

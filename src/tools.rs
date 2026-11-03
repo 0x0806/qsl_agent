@@ -224,6 +224,27 @@ impl ToolRegistry {
             ToolDefinition {
                 tool_type: "function".to_string(),
                 function: FunctionDefinition {
+                    name: "append_file".to_string(),
+                    description: "Append content to an existing file or create it if missing. Use this to construct large files (>200 lines) incrementally across multiple steps without exceeding model token limits.".to_string(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "File path to append content to"
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Text content to append"
+                            }
+                        },
+                        "required": ["path", "content"]
+                    }),
+                },
+            },
+            ToolDefinition {
+                tool_type: "function".to_string(),
+                function: FunctionDefinition {
                     name: "edit_file".to_string(),
                     description: "Find and replace a target substring inside a file".to_string(),
                     parameters: json!({
@@ -569,6 +590,46 @@ impl ToolRegistry {
                     content.len()
                 ))
             }
+            "append_file" => {
+                let path_str = args
+                    .get("path")
+                    .and_then(|p| p.as_str())
+                    .ok_or_else(|| "Missing 'path' argument".to_string())?;
+
+                let safe_path = SecurityGuard::is_path_safe(path_str, true)?;
+                let content = args
+                    .get("content")
+                    .and_then(|c| c.as_str())
+                    .ok_or_else(|| "Missing 'content' argument".to_string())?;
+
+                if let Some(parent) = safe_path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+
+                use std::fs::OpenOptions;
+                use std::io::Write as IoWrite;
+
+                let mut file = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&safe_path)
+                    .map_err(|e| format!("Failed to open '{}' for appending: {}", safe_path.display(), e))?;
+
+                file.write_all(content.as_bytes())
+                    .map_err(|e| format!("Failed to append to '{}': {}", safe_path.display(), e))?;
+
+                if !content.ends_with('\n') {
+                    let _ = file.write_all(b"\n");
+                }
+
+                let new_size = safe_path.metadata().map(|m| m.len()).unwrap_or(0);
+                Ok(format!(
+                    "Appended {} bytes to '{}' (new total size: {} bytes).",
+                    content.len(),
+                    safe_path.display(),
+                    new_size
+                ))
+            }
             "edit_file" => {
                 let path_str = args
                     .get("path")
@@ -790,5 +851,39 @@ mod tests {
         assert!(SecurityGuard::is_path_safe("/boot/vmlinuz", true).is_err());
         assert!(SecurityGuard::is_path_safe("/usr/bin/python3", true).is_err());
         assert!(SecurityGuard::is_path_safe("/home/user/project/file.rs", true).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_tool_append_file() {
+        let temp_dir = std::env::temp_dir().join("qsl_test_append");
+        let _ = fs::create_dir_all(&temp_dir);
+        let test_file = temp_dir.join("test_append.txt");
+        let _ = fs::remove_file(&test_file);
+
+        let vault_dir = temp_dir.join("vault");
+        let memory = ObsidianMemory::new(&vault_dir);
+        let mut skills = SkillManager::new(&vault_dir);
+
+        let write_args = json!({
+            "path": test_file.to_string_lossy(),
+            "content": "line 1\n"
+        })
+        .to_string();
+
+        let _ = ToolRegistry::execute("write_file", &write_args, &memory, &mut skills, 10).await.unwrap();
+
+        let append_args = json!({
+            "path": test_file.to_string_lossy(),
+            "content": "line 2\n"
+        })
+        .to_string();
+
+        let append_res = ToolRegistry::execute("append_file", &append_args, &memory, &mut skills, 10).await.unwrap();
+        assert!(append_res.contains("Appended"));
+
+        let final_content = fs::read_to_string(&test_file).unwrap();
+        assert_eq!(final_content, "line 1\nline 2\n");
+        let _ = fs::remove_file(&test_file);
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
