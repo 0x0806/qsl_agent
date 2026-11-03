@@ -1,3 +1,4 @@
+use crate::ui::UI;
 use colored::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -115,13 +116,9 @@ impl ApprovalManager {
             "Tool:".bold().white(),
             tool_name.bold().cyan()
         );
-        let preview = if details.len() > 120 {
-            format!("{}... (truncated)", &details[..120])
-        } else {
-            details.to_string()
-        };
-        for line in preview.lines() {
-            println!("│  {}  {}", "Args:".dimmed(), line.dimmed());
+        let formatted_details = UI::format_tool_details(tool_name, details);
+        for (k, v) in formatted_details {
+            println!("│  {}  {}", format!("{}:", k).bold().white(), v.dimmed());
         }
         println!(
             "{}",

@@ -150,7 +150,7 @@ async fn main() {
 
     if let Some(prompt_text) = args.prompt {
         match agent.run_turn(&prompt_text, false).await {
-            Ok(ans) => println!("{}", ans),
+            Ok(ans) => ui::UI::render_final_response(&ans),
             Err(err) => {
                 eprintln!("Error: {}", err);
                 std::process::exit(1);

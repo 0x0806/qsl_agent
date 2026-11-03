@@ -117,7 +117,7 @@ pub async fn run_repl(mut agent: QslAgent) {
                 // Run autonomous agent turn (interactive = true)
                 match agent.run_turn(trimmed, true).await {
                     Ok(response) => {
-                        println!("\n{}\n", response);
+                        UI::render_final_response(&response);
                     }
                     Err(err) => {
                         println!("\n{} {}\n", "Agent Error:".bold().red(), err);

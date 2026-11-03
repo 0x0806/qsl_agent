@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::time::{sleep, Duration, Instant};
 
-/// The core autonomous agent orchestrator implementing a ReAct (Reason+Act) loop
+/// The core autonomous agent orchestrator implementing an adaptive ReAct (Reason+Act) loop
 pub struct QslAgent {
     pub config: Config,
     pub memory: ObsidianMemory,
@@ -136,24 +136,43 @@ impl QslAgent {
         calls
     }
 
-    /// Strip thinking blocks from model output (e.g. <think>...</think>)
-    fn clean_model_output(text: &str) -> String {
-        let cleaned = if text.contains("</think>") {
-            // Take everything after the last </think>
+    /// Parse and extract reasoning thought blocks (e.g. <think>...</think>) and clean response text
+    pub fn extract_thought_and_response(text: &str) -> (Option<String>, String) {
+        if text.contains("<think>") && text.contains("</think>") {
+            let re = Regex::new(r"(?s)<think>(.*?)</think>").unwrap();
+            let mut thoughts = Vec::new();
+            for cap in re.captures_iter(text) {
+                thoughts.push(cap[1].trim().to_string());
+            }
+            let cleaned = re.replace_all(text, "").trim().to_string();
+            let combined_thought = thoughts.join("\n\n");
+            let opt_thought = if combined_thought.is_empty() {
+                None
+            } else {
+                Some(combined_thought)
+            };
+            (opt_thought, cleaned)
+        } else if text.contains("</think>") {
             let parts: Vec<&str> = text.split("</think>").collect();
-            parts.last().unwrap_or(&"").trim().to_string()
+            let thought = parts[..parts.len() - 1].join("\n").replace("<think>", "").trim().to_string();
+            let cleaned = parts.last().unwrap_or(&"").trim().to_string();
+            let opt_thought = if thought.is_empty() { None } else { Some(thought) };
+            (opt_thought, cleaned)
         } else if text.starts_with("<think>") {
-            // Model started thinking but didn't close — try to salvage
-            String::new()
+            let thought = text.replace("<think>", "").trim().to_string();
+            (Some(thought), String::new())
         } else {
-            text.trim().to_string()
-        };
-
-        // Also strip any stray <think> tags
-        cleaned.replace("<think>", "").trim().to_string()
+            (None, text.trim().to_string())
+        }
     }
 
-    /// Run a single autonomous turn: send user input, handle tool calls in a ReAct loop
+    /// Backward-compatible clean model output
+    #[allow(dead_code)]
+    pub fn clean_model_output(text: &str) -> String {
+        Self::extract_thought_and_response(text).1
+    }
+
+    /// Run a single autonomous turn: send user input, handle tool calls in an adaptive ReAct loop
     pub async fn run_turn(
         &mut self,
         user_input: &str,
@@ -181,25 +200,175 @@ impl QslAgent {
         });
 
         let tool_defs = ToolRegistry::get_definitions();
-        let max_steps = self.config.max_react_steps as usize;
+        let mut max_steps = self.config.max_react_steps as usize;
         let timeout_secs = self.config.command_timeout_secs;
         let mut step = 0;
         let mut nudge_count = 0;
+        let mut executed_signatures: Vec<String> = Vec::new();
 
         loop {
             step += 1;
+
+            // Approaching limit directive: inject warning when 3 steps remain
+            if step == max_steps.saturating_sub(3) && step > 3 {
+                self.history.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: Some(format!(
+                        "[SYSTEM DIRECTIVE] Approaching step budget limit (step {} of {}). Conclude remaining tool operations immediately and synthesize your final comprehensive response.",
+                        step, max_steps
+                    )),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                });
+            }
+
+            // Adaptive step budget resolution when limit is exceeded
             if step > max_steps {
-                return Err(format!(
-                    "Agent exceeded maximum ReAct steps ({}) for this turn. Increase max_react_steps in config if needed.",
-                    max_steps
-                ));
+                if is_interactive {
+                    println!();
+                    println!("{}", "╭── [STEP LIMIT REACHED] ───────────────────────────────────────────╮".bold().yellow());
+                    println!(
+                        "│  Agent reached step budget limit ({}/{} steps).                   │",
+                        step - 1,
+                        max_steps
+                    );
+                    println!("├───────────────────────────────────────────────────────────────────┤");
+                    println!(
+                        "│  {} Extend (+15 steps)  │  {} Force synthesis  │  {} Stop turn    │",
+                        "[c]".cyan().bold(),
+                        "[f]".green().bold(),
+                        "[s]".red().bold()
+                    );
+                    println!("{}", "╰───────────────────────────────────────────────────────────────────╯".bold().yellow());
+                    print!("{}", "  action [c/f/s] > ".bold());
+                    let _ = io::stdout().flush();
+
+                    let mut choice = String::new();
+                    let _ = io::stdin().read_line(&mut choice);
+                    match choice.trim().to_lowercase().as_str() {
+                        "c" | "continue" | "" => {
+                            max_steps += 15;
+                            println!(
+                                "  {} Extended step budget by +15 (new limit: {} steps).",
+                                "[OK]".green(),
+                                max_steps
+                            );
+                        }
+                        "f" | "finalize" | "synthesize" => {
+                            println!("  {} Requesting final synthesis without tools...", "[WAIT]".yellow());
+                            self.history.push(ChatMessage {
+                                role: "user".to_string(),
+                                content: Some(
+                                    "Conclude all operations now. Synthesize all gathered data and provide your comprehensive final response. Do not invoke any further tools.".to_string(),
+                                ),
+                                tool_calls: None,
+                                tool_call_id: None,
+                                name: None,
+                            });
+
+                            let final_chat = self
+                                .client
+                                .chat(
+                                    &self.config.model,
+                                    &self.history,
+                                    None,
+                                    self.config.temperature,
+                                    self.config.max_tokens,
+                                    self.config.context_size,
+                                )
+                                .await?;
+
+                            let raw_text = final_chat.content.unwrap_or_default();
+                            let (thought, clean_text) = Self::extract_thought_and_response(&raw_text);
+                            if let Some(th) = thought {
+                                UI::render_reasoning(&th);
+                            }
+
+                            let final_text = if clean_text.is_empty() {
+                                "Task concluded.".to_string()
+                            } else {
+                                clean_text
+                            };
+
+                            self.history.push(ChatMessage {
+                                role: "assistant".to_string(),
+                                content: Some(final_text.clone()),
+                                tool_calls: None,
+                                tool_call_id: None,
+                                name: None,
+                            });
+
+                            let log_entry = format!("**User:** {}\n\n**Agent:**\n{}", user_input, final_text);
+                            let _ = self.memory.append_daily_log(&log_entry);
+                            return Ok(final_text);
+                        }
+                        _ => {
+                            return Ok("Turn execution halted by user at step limit.".to_string());
+                        }
+                    }
+                } else {
+                    // Non-interactive mode: auto-extend once up to 50 steps
+                    if max_steps < 50 {
+                        max_steps += 15;
+                        println!("  [Step budget dynamically auto-extended to {} steps]", max_steps);
+                    } else {
+                        // Beyond 50 steps: force final synthesis without crashing
+                        println!("  [Maximum step budget reached; synthesizing final response]");
+                        self.history.push(ChatMessage {
+                            role: "user".to_string(),
+                            content: Some(
+                                "Step budget reached. Synthesize all findings and collected information into your comprehensive final answer now. Do not call any tools.".to_string(),
+                            ),
+                            tool_calls: None,
+                            tool_call_id: None,
+                            name: None,
+                        });
+
+                        let final_chat = self
+                            .client
+                            .chat(
+                                &self.config.model,
+                                &self.history,
+                                None,
+                                self.config.temperature,
+                                self.config.max_tokens,
+                                self.config.context_size,
+                            )
+                            .await?;
+
+                        let raw_text = final_chat.content.unwrap_or_default();
+                        let (thought, clean_text) = Self::extract_thought_and_response(&raw_text);
+                        if let Some(th) = thought {
+                            UI::render_reasoning(&th);
+                        }
+
+                        let final_text = if clean_text.is_empty() {
+                            "Task concluded after reaching maximum step budget.".to_string()
+                        } else {
+                            clean_text
+                        };
+
+                        self.history.push(ChatMessage {
+                            role: "assistant".to_string(),
+                            content: Some(final_text.clone()),
+                            tool_calls: None,
+                            tool_call_id: None,
+                            name: None,
+                        });
+
+                        let log_entry = format!("**User:** {}\n\n**Agent:**\n{}", user_input, final_text);
+                        let _ = self.memory.append_daily_log(&log_entry);
+                        return Ok(final_text);
+                    }
+                }
             }
 
             let step_label = match step {
-                1 => "Analyzing prompt & planning task...",
+                1 => "Analyzing prompt & cognitive planning...",
                 2 => "Processing tool results & determining next action...",
                 3 => "Executing follow-up operation...",
-                _ => "Synthesizing output & finalizing response...",
+                _ => "Synthesizing output & evaluating completion...",
             };
 
             let start_time = Instant::now();
@@ -209,6 +378,7 @@ impl QslAgent {
             let done = Arc::new(AtomicBool::new(false));
             let done_clone = done.clone();
             let ticker_step = step;
+            let ticker_max = max_steps;
             let ticker_label = step_label;
 
             let ticker_handle = tokio::spawn(async move {
@@ -221,8 +391,8 @@ impl QslAgent {
                     let elapsed = start_time.elapsed().as_secs();
                     let frame = frames[idx % frames.len()];
                     print!(
-                        "\r  [Step {}] {} ({}s) {}  ",
-                        ticker_step, ticker_label, elapsed, frame
+                        "\r  [Step {}/{}] {} ({}s) {}  ",
+                        ticker_step, ticker_max, ticker_label, elapsed, frame
                     );
                     let _ = io::stdout().flush();
                     sleep(Duration::from_millis(200)).await;
@@ -231,7 +401,7 @@ impl QslAgent {
             });
 
             if !is_term {
-                println!("  [Step {}] {}", step, step_label);
+                println!("  [Step {}/{}] {}", step, max_steps, step_label);
             }
 
             let chat_result = self
@@ -254,12 +424,20 @@ impl QslAgent {
                 print!("\r\x1b[2K"); // erase ticker line cleanly
                 println!(
                     "{}",
-                    format!("  [Step {}] Completed in {:.1}s", step, duration_secs).dimmed()
+                    format!("  [Step {}/{}] Inference completed in {:.1}s", step, max_steps, duration_secs).dimmed()
                 );
                 let _ = io::stdout().flush();
             }
 
             let response_msg = chat_result?;
+
+            // Extract thought blocks (e.g. <think>...</think>) and render them
+            if let Some(content) = &response_msg.content {
+                let (thought, _) = Self::extract_thought_and_response(content);
+                if let Some(th) = thought {
+                    UI::render_reasoning(&th);
+                }
+            }
 
             // Check for tool calls (native or text-based fallback)
             let mut tool_calls = response_msg.tool_calls.clone().unwrap_or_default();
@@ -272,7 +450,7 @@ impl QslAgent {
             // No tool calls → final text response
             if tool_calls.is_empty() {
                 let raw_text = response_msg.content.unwrap_or_default();
-                let clean_text = Self::clean_model_output(&raw_text);
+                let (_, clean_text) = Self::extract_thought_and_response(&raw_text);
 
                 // If response is empty after tool calls, nudge the model (max 2 attempts)
                 if clean_text.is_empty() && step > 1 && nudge_count < 2 {
@@ -311,6 +489,25 @@ impl QslAgent {
                 return Ok(final_text);
             }
 
+            // Loop repetition detector: prevent models from spinning on the exact same tool calls
+            for call in &tool_calls {
+                let sig = format!("{}:{}", call.function.name, call.function.arguments.trim());
+                let repetition_count = executed_signatures.iter().rev().take(3).filter(|s| *s == &sig).count();
+                if repetition_count >= 1 {
+                    self.history.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: Some(format!(
+                            "[SYSTEM DIRECTIVE] Repeated tool action detected for '{}'. You have already executed this action with identical parameters. Do NOT repeat it. Conclude this task or transition to the next distinct action now.",
+                            call.function.name
+                        )),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
+                    });
+                }
+                executed_signatures.push(sig);
+            }
+
             // Add assistant message with tool calls
             self.history.push(ChatMessage {
                 role: "assistant".to_string(),
@@ -319,6 +516,13 @@ impl QslAgent {
                 tool_call_id: None,
                 name: None,
             });
+
+            // Working indication before executing tools
+            println!(
+                "  {} Executing {} autonomous tool action(s)...",
+                "[ACTION]".bold().cyan(),
+                tool_calls.len()
+            );
 
             // Execute each tool call
             for call in tool_calls {
@@ -379,7 +583,6 @@ impl QslAgent {
     #[allow(dead_code)]
     pub fn trim_history(&mut self, max_messages: usize) {
         if self.history.len() > max_messages {
-            // Keep system prompt (index 0) and the most recent messages
             let system_msg = self.history.first().cloned();
             let keep_count = max_messages - 1;
             let start = self.history.len() - keep_count;
@@ -390,5 +593,38 @@ impl QslAgent {
             trimmed.extend_from_slice(&self.history[start..]);
             self.history = trimmed;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_thought_and_response_with_tags() {
+        let input = "<think>\nAnalyzing the user's codebase structure.\nFound 5 files.\n</think>\nHere is the summary of your project.";
+        let (thought, clean) = QslAgent::extract_thought_and_response(input);
+        assert!(thought.is_some());
+        assert_eq!(
+            thought.unwrap(),
+            "Analyzing the user's codebase structure.\nFound 5 files."
+        );
+        assert_eq!(clean, "Here is the summary of your project.");
+    }
+
+    #[test]
+    fn test_extract_thought_and_response_no_tags() {
+        let input = "Direct response without any reasoning block.";
+        let (thought, clean) = QslAgent::extract_thought_and_response(input);
+        assert!(thought.is_none());
+        assert_eq!(clean, "Direct response without any reasoning block.");
+    }
+
+    #[test]
+    fn test_extract_thought_unclosed_tag() {
+        let input = "<think>\nThinking in progress...";
+        let (thought, clean) = QslAgent::extract_thought_and_response(input);
+        assert!(thought.is_some());
+        assert_eq!(clean, "");
     }
 }

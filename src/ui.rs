@@ -1,4 +1,5 @@
 use colored::*;
+use serde_json::Value;
 
 /// Terminal styling helper providing modern, minimal "CLI CSS" with clean unicode box-drawing frames
 pub struct UI;
@@ -106,39 +107,194 @@ impl UI {
         println!("│ {}{} │", colored_text, " ".repeat(pad));
     }
 
-    pub fn render_tool_call(name: &str, args: &str) {
-        println!("{}", format!("╭── [TOOL CALL: {}] ────────────────────────────────────", name).bold().cyan());
-        for line in args.lines().take(6) {
-            println!("│  {}", line.dimmed());
+    /// Render structured reasoning/thought process emitted by reasoning models (e.g. DeepSeek-R1, Qwen35)
+    pub fn render_reasoning(thought: &str) {
+        let trimmed = thought.trim();
+        if trimmed.is_empty() {
+            return;
         }
-        if args.lines().count() > 6 {
-            println!("│  {}", format!("... ({} lines total)", args.lines().count()).dimmed());
+
+        println!("{}", "╭── [REASONING & COGNITIVE PLANNING] ───────────────────────────────────".bold().bright_magenta());
+        let lines: Vec<&str> = trimmed.lines().collect();
+        let max_display = 14;
+        for line in lines.iter().take(max_display) {
+            println!("│  {}", line.bright_black());
+        }
+        if lines.len() > max_display {
+            println!(
+                "│  {}",
+                format!("... ({} additional reasoning steps omitted for brevity)", lines.len() - max_display).dimmed()
+            );
+        }
+        println!("{}", "╰───────────────────────────────────────────────────────────────────────".bold().bright_magenta());
+    }
+
+    /// Format tool call arguments into clean, structured key-value pairs rather than dumping raw JSON
+    pub fn format_tool_details(name: &str, raw_args: &str) -> Vec<(String, String)> {
+        let mut details = Vec::new();
+        if let Ok(val) = serde_json::from_str::<Value>(raw_args) {
+            match name {
+                "execute_command" => {
+                    if let Some(cmd) = val.get("command").and_then(|v| v.as_str()) {
+                        details.push(("Command".to_string(), cmd.to_string()));
+                    }
+                }
+                "write_file" => {
+                    if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
+                        details.push(("Target".to_string(), path.to_string()));
+                    }
+                    if let Some(content) = val.get("content").and_then(|v| v.as_str()) {
+                        details.push((
+                            "Payload".to_string(),
+                            format!("{} bytes ({} lines)", content.len(), content.lines().count()),
+                        ));
+                    }
+                }
+                "read_file" => {
+                    if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
+                        details.push(("Target".to_string(), path.to_string()));
+                    }
+                    let offset = val.get("offset").and_then(|v| v.as_u64()).unwrap_or(1);
+                    let limit = val.get("limit").and_then(|v| v.as_u64()).unwrap_or(100);
+                    details.push(("Range".to_string(), format!("lines {} to {}", offset, offset + limit)));
+                }
+                "edit_file" => {
+                    if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
+                        details.push(("Target".to_string(), path.to_string()));
+                    }
+                    let target_len = val.get("target").and_then(|v| v.as_str()).map(|s| s.len()).unwrap_or(0);
+                    let repl_len = val.get("replacement").and_then(|v| v.as_str()).map(|s| s.len()).unwrap_or(0);
+                    details.push(("Diff".to_string(), format!("replace {} bytes with {} bytes", target_len, repl_len)));
+                }
+                "list_dir" => {
+                    if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
+                        details.push(("Directory".to_string(), path.to_string()));
+                    }
+                }
+                "obsidian_write" | "obsidian_append" => {
+                    if let Some(f) = val.get("filename").and_then(|v| v.as_str()) {
+                        details.push(("Note".to_string(), f.to_string()));
+                    }
+                    if let Some(content) = val.get("content").and_then(|v| v.as_str()) {
+                        details.push(("Size".to_string(), format!("{} bytes", content.len())));
+                    }
+                }
+                "obsidian_search" => {
+                    if let Some(q) = val.get("query").and_then(|v| v.as_str()) {
+                        details.push(("Query".to_string(), q.to_string()));
+                    }
+                }
+                "skill_read" => {
+                    if let Some(s) = val.get("skill_name").and_then(|v| v.as_str()) {
+                        details.push(("Skill".to_string(), s.to_string()));
+                    }
+                }
+                "skill_create" => {
+                    if let Some(n) = val.get("name").and_then(|v| v.as_str()) {
+                        details.push(("Name".to_string(), n.to_string()));
+                    }
+                    if let Some(d) = val.get("description").and_then(|v| v.as_str()) {
+                        details.push(("Description".to_string(), d.to_string()));
+                    }
+                }
+                _ => {
+                    if let Some(obj) = val.as_object() {
+                        for (k, v) in obj {
+                            let val_str = match v {
+                                Value::String(s) => {
+                                    if s.len() > 60 {
+                                        format!("{}... ({} bytes)", &s[..57], s.len())
+                                    } else {
+                                        s.clone()
+                                    }
+                                }
+                                other => other.to_string(),
+                            };
+                            details.push((k.clone(), val_str));
+                        }
+                    }
+                }
+            }
+        }
+
+        if details.is_empty() {
+            let clean = raw_args.trim().replace('\n', " ");
+            let preview = if clean.len() > 70 {
+                format!("{}...", &clean[..67])
+            } else {
+                clean
+            };
+            details.push(("Args".to_string(), preview));
+        }
+
+        details
+    }
+
+    /// Render clean, enterprise-grade action badges instead of dumping raw JSON
+    pub fn render_tool_call(name: &str, args: &str) {
+        println!("{}", format!("╭── [ACTION: {}] ───────────────────────────────────────────", name).bold().cyan());
+        let details = Self::format_tool_details(name, args);
+        for (k, v) in details {
+            println!("│  {:<12} {}", format!("{}:", k).bold().white(), v.dimmed());
         }
         println!("{}", "╰───────────────────────────────────────────────────────────────────".bold().cyan());
     }
 
+    /// Render tool output cleanly with line limits and byte metadata
     pub fn render_tool_result(name: &str, output: &str) {
-        println!("{}", format!("╭── [RESULT: {}] ───────────────────────────────────────", name).bold().green());
         let trimmed = output.trim();
-        for line in trimmed.lines().take(6) {
+        let total_lines = trimmed.lines().count();
+        let is_ok = !trimmed.starts_with("ERROR") && !trimmed.starts_with("DENIED");
+
+        let header_badge = if is_ok {
+            format!("╭── [RESULT: {}] [OK] ───────────────────────────────────────", name).bold().green()
+        } else {
+            format!("╭── [RESULT: {}] [WARN] ─────────────────────────────────────", name).bold().yellow()
+        };
+
+        println!("{}", header_badge);
+        let max_lines = 6;
+        for line in trimmed.lines().take(max_lines) {
             println!("│  {}", line.bright_black());
         }
-        let total_lines = trimmed.lines().count();
-        if total_lines > 6 {
+        if total_lines > max_lines {
             println!(
                 "│  {}",
-                format!("... ({} more lines, {} total bytes)", total_lines - 6, output.len()).dimmed()
+                format!("... ({} more lines omitted, {} bytes total)", total_lines - max_lines, output.len()).dimmed()
             );
         }
-        println!("{}", "╰───────────────────────────────────────────────────────────────────".bold().green());
+        if is_ok {
+            println!("{}", "╰───────────────────────────────────────────────────────────────────".bold().green());
+        } else {
+            println!("{}", "╰───────────────────────────────────────────────────────────────────".bold().yellow());
+        }
     }
 
+    /// Render explicit tool failure or security block
     pub fn render_tool_error(name: &str, error: &str) {
-        println!("{}", format!("╭── [BLOCKED / ERROR: {}] ────────────────────────", name).bold().red());
+        println!("{}", format!("╭── [BLOCKED / ERROR: {}] ──────────────────────────────────", name).bold().red());
         for line in error.lines() {
             println!("│  {}", line.bright_red());
         }
         println!("{}", "╰───────────────────────────────────────────────────────────────────".bold().red());
+    }
+
+    /// Render the final completed response in an executive card container
+    pub fn render_final_response(content: &str) {
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+
+        println!();
+        println!("{}", "╭── [EXECUTIVE RESPONSE] ───────────────────────────────────────────────".bold().bright_green());
+        println!("│");
+        for line in trimmed.lines() {
+            println!("│  {}", line);
+        }
+        println!("│");
+        println!("{}", "╰───────────────────────────────────────────────────────────────────────".bold().bright_green());
+        println!();
     }
 
     pub fn render_skills_table(skills: &[(String, String, Vec<String>)]) {
@@ -172,5 +328,41 @@ impl UI {
         }
         println!("{}", "╰───────────────────────┴──────────────────────────────┴────────────────────────────────╯".bright_magenta());
         println!();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_tool_details_write_file() {
+        let args = r#"{"path":"src/test.rs","content":"fn main() {\n    println!(\"hello\");\n}\n"}"#;
+        let details = UI::format_tool_details("write_file", args);
+        assert_eq!(details.len(), 2);
+        assert_eq!(details[0].0, "Target");
+        assert_eq!(details[0].1, "src/test.rs");
+        assert_eq!(details[1].0, "Payload");
+        assert!(details[1].1.contains("bytes"));
+    }
+
+    #[test]
+    fn test_format_tool_details_execute_command() {
+        let args = r#"{"command":"cargo test --lib"}"#;
+        let details = UI::format_tool_details("execute_command", args);
+        assert_eq!(details.len(), 1);
+        assert_eq!(details[0].0, "Command");
+        assert_eq!(details[0].1, "cargo test --lib");
+    }
+
+    #[test]
+    fn test_format_tool_details_read_file() {
+        let args = r#"{"path":"Cargo.toml","offset":10,"limit":50}"#;
+        let details = UI::format_tool_details("read_file", args);
+        assert_eq!(details.len(), 2);
+        assert_eq!(details[0].0, "Target");
+        assert_eq!(details[0].1, "Cargo.toml");
+        assert_eq!(details[1].0, "Range");
+        assert_eq!(details[1].1, "lines 10 to 60");
     }
 }

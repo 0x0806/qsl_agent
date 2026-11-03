@@ -34,7 +34,7 @@ impl Default for Config {
             max_tokens: 4096,
             context_size: 16384,
             auto_approve_commands: false,
-            max_react_steps: 20,
+            max_react_steps: 35,
             command_timeout_secs: 30,
         }
     }
