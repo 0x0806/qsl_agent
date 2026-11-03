@@ -1,365 +1,308 @@
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
+use futures::StreamExt;
+use eventsource_stream::Eventsource;
+use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
+use tracing::{instrument, warn};
 
-/// Model parameter tier classification for optimal hardware and context tuning
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ModelTier {
-    /// Models <= 9B parameters (e.g. 3B, 7B, 8B, 9B): High-speed, compact KV cache
-    Small,
-    /// Models 10B - 34B parameters (e.g. 12B, 14B, 27B, 32B): Balanced reasoning powerhouse
-    Medium,
-    /// Models >= 35B parameters (e.g. 70B, 72B, 120B+): Deep enterprise reasoning, high VRAM
-    Large,
-}
+use crate::config::ProviderConfig;
+use crate::error::{AgentError, Result};
 
-impl ModelTier {
-    pub fn from_model_name(name: &str) -> Self {
-        let lower = name.to_lowercase();
-        if lower.contains("70b")
-            || lower.contains("72b")
-            || lower.contains("67b")
-            || lower.contains("104b")
-            || lower.contains("110b")
-            || lower.contains("120b")
-            || lower.contains("236b")
-            || lower.contains("405b")
-            || lower.contains("large")
-        {
-            ModelTier::Large
-        } else if lower.contains("12b")
-            || lower.contains("13b")
-            || lower.contains("14b")
-            || lower.contains("27b")
-            || lower.contains("32b")
-            || lower.contains("33b")
-            || lower.contains("34b")
-            || lower.contains("35b")
-            || lower.contains("medium")
-        {
-            ModelTier::Medium
-        } else {
-            ModelTier::Small
-        }
-    }
+static HTTP: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+    reqwest::Client::builder()
+        .pool_max_idle_per_host(16)
+        .pool_idle_timeout(Duration::from_secs(90))
+        .tcp_nodelay(true)
+        .http2_adaptive_window(true)
+        .build()
+        .expect("reqwest client")
+});
 
-    pub fn display_label(&self) -> &'static str {
-        match self {
-            ModelTier::Small => "Small (<=9B) [High-Speed / Compact KV Cache]",
-            ModelTier::Medium => "Medium (10B-34B) [Balanced Workstation / 16K-32K Context]",
-            ModelTier::Large => "Large (>=35B) [Enterprise Reasoning / 32K+ Context & Adaptive Headroom]",
-        }
-    }
-
-    /// Optimal generation token headroom for adaptive context window sizing
-    pub fn optimal_headroom(&self, requested_max: u32) -> u32 {
-        match self {
-            ModelTier::Small => requested_max.min(2048).max(1024),
-            ModelTier::Medium => requested_max.min(4096).max(2048),
-            ModelTier::Large => requested_max.min(8192).max(4096),
-        }
-    }
-}
-
-/// A single message in a chat conversation (OpenAI-compatible format)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
-    pub role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
+    pub role: Role,
+    pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    #[serde(skip)]
+    pub tokens: std::sync::OnceLock<u32>,
 }
+
+impl ChatMessage {
+    pub fn user(content: impl Into<String>) -> Self {
+        Self { role: Role::User, content: content.into(), tool_calls: None, tool_call_id: None, tokens: Default::default() }
+    }
+    pub fn system(content: impl Into<String>) -> Self {
+        Self { role: Role::System, content: content.into(), tool_calls: None, tool_call_id: None, tokens: Default::default() }
+    }
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self { role: Role::Assistant, content: content.into(), tool_calls: None, tool_call_id: None, tokens: Default::default() }
+    }
+    pub fn token_count(&self) -> u32 {
+        *self.tokens.get_or_init(|| {
+            tiktoken_rs::o200k_base()
+                .map(|bpe| bpe.encode_with_special_tokens(&self.content).len() as u32)
+                .unwrap_or_else(|_| (self.content.len() / 4) as u32)
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Role { System, User, Assistant, Tool }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
     pub id: String,
-    #[serde(rename = "type", default = "default_tool_type")]
-    pub tool_type: String,
-    pub function: FunctionCall,
-}
-
-fn default_tool_type() -> String {
-    "function".to_string()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FunctionCall {
     pub name: String,
-    pub arguments: String,
+    pub arguments: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolDefinition {
-    #[serde(rename = "type")]
-    pub tool_type: String,
-    pub function: FunctionDefinition,
+#[derive(Debug, Clone)]
+pub struct ChatRequest {
+    pub messages: Vec<ChatMessage>,
+    pub tools: Vec<serde_json::Value>,
+    pub temperature: f32,
+    pub stream: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FunctionDefinition {
-    pub name: String,
-    pub description: String,
-    pub parameters: Value,
+#[derive(Debug)]
+pub enum StreamEvent {
+    Text(String),
+    ToolCall(ToolCall),
+    Done { usage_in: u32, usage_out: u32 },
 }
 
-/// Client for communicating with a local LLM server (Ollama, LM Studio, or any OpenAI-compatible endpoint)
-pub struct LocalLlmClient {
-    pub endpoint: String,
-    pub client: Client,
-    pub provider_name: String,
+pub struct CircuitBreaker {
+    failures: AtomicU32,
+    open_until: AtomicU64,
 }
 
-impl LocalLlmClient {
-    pub fn new(endpoint: &str, provider_name: &str) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(1200)) // 20 min max to accommodate 70B models on CPU/GPU
-            .connect_timeout(Duration::from_secs(10))
-            .pool_idle_timeout(Duration::from_secs(120))
-            .build()
-            .unwrap_or_else(|_| Client::new());
-
-        Self {
-            endpoint: endpoint.trim_end_matches('/').to_string(),
-            client,
-            provider_name: provider_name.to_string(),
+impl CircuitBreaker {
+    fn new() -> Self {
+        Self { failures: AtomicU32::new(0), open_until: AtomicU64::new(0) }
+    }
+    fn check(&self, provider: &str) -> Result<()> {
+        let open_until = self.open_until.load(Ordering::Relaxed);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        if open_until > now {
+            return Err(AgentError::ProviderDegraded {
+                provider: provider.into(),
+                retry_after_s: open_until - now,
+            });
+        }
+        Ok(())
+    }
+    fn record_success(&self) { self.failures.store(0, Ordering::Relaxed); }
+    fn record_failure(&self) {
+        let n = self.failures.fetch_add(1, Ordering::Relaxed) + 1;
+        if n >= 5 {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            self.open_until.store(now + 60, Ordering::Relaxed);
+            self.failures.store(0, Ordering::Relaxed);
+            warn!("circuit breaker open for 60s after 5 failures");
+            crate::metrics::circuit_open("provider");
         }
     }
+}
 
-    /// List all available models from the local inference server
-    pub async fn list_models(&self) -> Result<Vec<String>, String> {
-        let base_url = if self.endpoint.ends_with("/v1") {
-            self.endpoint.trim_end_matches("/v1").to_string()
-        } else {
-            self.endpoint.clone()
+pub struct Provider {
+    cfg: ProviderConfig,
+    breaker: CircuitBreaker,
+    usage_in:  RwLock<u64>,
+    usage_out: RwLock<u64>,
+}
+
+impl Provider {
+    pub fn new(cfg: &crate::config::Config) -> Result<Self> {
+        Ok(Self {
+            cfg: cfg.provider.clone(),
+            breaker: CircuitBreaker::new(),
+            usage_in:  RwLock::new(0),
+            usage_out: RwLock::new(0),
+        })
+    }
+
+    pub async fn total_usage(&self) -> (u64, u64) {
+        (*self.usage_in.read().await, *self.usage_out.read().await)
+    }
+
+    pub async fn probe(&self) -> Result<()> {
+        let req = ChatRequest {
+            messages: vec![ChatMessage::user("ping")],
+            tools: vec![],
+            temperature: 0.0,
+            stream: false,
         };
+        let _ = self.chat(req).await?;
+        Ok(())
+    }
 
-        // Try Ollama native /api/tags first
-        if self.provider_name.to_lowercase() == "ollama" {
-            let ollama_tags_url = format!("{}/api/tags", base_url);
-            if let Ok(res) = self
-                .client
-                .get(&ollama_tags_url)
-                .timeout(Duration::from_secs(5))
-                .send()
-                .await
-            {
-                if res.status().is_success() {
-                    if let Ok(data) = res.json::<Value>().await {
-                        if let Some(models) = data.get("models").and_then(|m| m.as_array()) {
-                            let names: Vec<String> = models
-                                .iter()
-                                .filter_map(|m| m.get("name").and_then(|n| n.as_str()))
-                                .map(|s| s.to_string())
-                                .collect();
-                            if !names.is_empty() {
-                                return Ok(names);
+    #[instrument(skip(self, req), fields(model = %self.cfg.model))]
+    pub async fn chat_stream(
+        &self,
+        req: ChatRequest,
+        tx: tokio::sync::mpsc::Sender<StreamEvent>,
+    ) -> Result<()> {
+        self.breaker.check(&self.cfg.model)?;
+
+        let body = serde_json::json!({
+            "model": self.cfg.model,
+            "messages": req.messages,
+            "tools": if req.tools.is_empty() { serde_json::Value::Null } else { serde_json::json!(req.tools) },
+            "temperature": req.temperature,
+            "stream": true,
+        });
+
+        let url = format!("{}/v1/chat/completions", self.cfg.base_url.trim_end_matches('/'));
+        let mut request = HTTP.post(&url).json(&body);
+        if let Some(k) = &self.cfg.api_key {
+            request = request.bearer_auth(k);
+        }
+
+        let resp = request.timeout(Duration::from_secs(self.cfg.request_timeout_s))
+            .send().await
+            .map_err(|source| {
+                self.breaker.record_failure();
+                AgentError::LlmUnreachable { provider: self.cfg.model.clone(), source }
+            })?;
+
+        if !resp.status().is_success() {
+            self.breaker.record_failure();
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AgentError::LlmStatus {
+                provider: self.cfg.model.clone(), status, body,
+            });
+        }
+
+        self.breaker.record_success();
+
+        let mut stream = resp.bytes_stream().eventsource();
+        let mut accum_tool: Option<ToolCall> = None;
+        let mut tool_arg_buf = String::new();
+
+        while let Some(evt) = stream.next().await {
+            let evt = match evt {
+                Ok(e) => e,
+                Err(e) => { warn!(?e, "SSE read error"); break; }
+            };
+            if evt.data == "[DONE]" { break; }
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&evt.data) else { continue };
+
+            if let Some(delta) = v.pointer("/choices/0/delta") {
+                if let Some(txt) = delta.get("content").and_then(|c| c.as_str()) {
+                    if !txt.is_empty() {
+                        let _ = tx.send(StreamEvent::Text(txt.to_string())).await;
+                    }
+                }
+                if let Some(calls) = delta.get("tool_calls").and_then(|c| c.as_array()) {
+                    for call in calls {
+                        let name = call.pointer("/function/name").and_then(|n| n.as_str());
+                        if let Some(name) = name {
+                            let id = call.get("id").and_then(|i| i.as_str()).unwrap_or("call_0");
+                            accum_tool = Some(ToolCall {
+                                id: id.to_string(),
+                                name: name.to_string(),
+                                arguments: serde_json::Value::Null,
+                            });
+                            tool_arg_buf.clear();
+                        }
+                        if let Some(frag) = call.pointer("/function/arguments").and_then(|a| a.as_str()) {
+                            tool_arg_buf.push_str(frag);
+                            if tool_arg_buf.ends_with('}') {
+                                if let Some(ref mut tc) = accum_tool {
+                                    tc.arguments = serde_json::from_str(&tool_arg_buf)
+                                        .unwrap_or(serde_json::Value::Null);
+                                    let _ = tx.send(StreamEvent::ToolCall(tc.clone())).await;
+                                    accum_tool = None;
+                                    tool_arg_buf.clear();
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-
-        // Standard OpenAI /v1/models fallback
-        let models_url = format!("{}/models", self.endpoint);
-        let res = self
-            .client
-            .get(&models_url)
-            .timeout(Duration::from_secs(5))
-            .send()
-            .await
-            .map_err(|e| format!("Failed to reach local endpoint at {}: {}", models_url, e))?;
-
-        if !res.status().is_success() {
-            return Err(format!(
-                "Failed to query models from {}: HTTP {}",
-                models_url,
-                res.status()
-            ));
-        }
-
-        let json_val = res
-            .json::<Value>()
-            .await
-            .map_err(|e| format!("Failed to parse models JSON: {}", e))?;
-
-        let mut model_ids = Vec::new();
-        if let Some(data) = json_val.get("data").and_then(|d| d.as_array()) {
-            for item in data {
-                if let Some(id) = item.get("id").and_then(|id| id.as_str()) {
-                    model_ids.push(id.to_string());
-                }
+            if let Some(usage) = v.get("usage") {
+                let i = usage.get("prompt_tokens").and_then(|x| x.as_u64()).unwrap_or(0);
+                let o = usage.get("completion_tokens").and_then(|x| x.as_u64()).unwrap_or(0);
+                *self.usage_in.write().await  += i;
+                *self.usage_out.write().await += o;
+                let _ = tx.send(StreamEvent::Done {
+                    usage_in: i as u32, usage_out: o as u32,
+                }).await;
             }
         }
-
-        Ok(model_ids)
+        Ok(())
     }
 
-    /// Auto-detect the first available model from the local inference server
-    pub async fn auto_detect_model(&self) -> Option<String> {
-        match self.list_models().await {
-            Ok(models) if !models.is_empty() => Some(models[0].clone()),
-            _ => None,
-        }
+    pub async fn chat(&self, req: ChatRequest) -> Result<(ChatMessage, Vec<ToolCall>, u32, u32)> {
+        use backoff::ExponentialBackoffBuilder;
+        let backoff = ExponentialBackoffBuilder::new()
+            .with_initial_interval(Duration::from_millis(500))
+            .with_max_elapsed_time(Some(Duration::from_secs(30)))
+            .with_randomization_factor(0.5)
+            .build();
+
+        backoff::future::retry(backoff, || async {
+            self.chat_once(&req).await.map_err(|e| {
+                if e.is_retryable() { backoff::Error::transient(e) }
+                else { backoff::Error::permanent(e) }
+            })
+        }).await
     }
 
-    /// Check if the local inference server is reachable and healthy
-    pub async fn health_check(&self) -> Result<String, String> {
-        let base_url = if self.endpoint.ends_with("/v1") {
-            self.endpoint.trim_end_matches("/v1").to_string()
-        } else {
-            self.endpoint.clone()
-        };
-
-        // Try Ollama health
-        let health_url = format!("{}/", base_url);
-        match self
-            .client
-            .get(&health_url)
-            .timeout(Duration::from_secs(3))
-            .send()
-            .await
-        {
-            Ok(res) if res.status().is_success() => {
-                let text = res.text().await.unwrap_or_default();
-                Ok(format!(
-                    "Provider '{}' is reachable at {}. Response: {}",
-                    self.provider_name,
-                    base_url,
-                    text.trim()
-                ))
-            }
-            Ok(res) => Err(format!("Provider returned HTTP {}", res.status())),
-            Err(e) => Err(format!("Cannot reach provider at {}: {}", base_url, e)),
-        }
-    }
-
-    /// Send a chat completion request to the local LLM with adaptive context and tier optimization
-    pub async fn chat(
-        &self,
-        model: &str,
-        messages: &[ChatMessage],
-        tools: Option<&[ToolDefinition]>,
-        temperature: f32,
-        max_tokens: u32,
-        context_size: u32,
-    ) -> Result<ChatMessage, String> {
-        let chat_url = if self.endpoint.ends_with("/v1") {
-            format!("{}/chat/completions", self.endpoint)
-        } else {
-            format!("{}/v1/chat/completions", self.endpoint)
-        };
-
-        let tier = ModelTier::from_model_name(model);
-        let total_chars: usize = messages
-            .iter()
-            .map(|m| m.content.as_deref().unwrap_or("").len())
-            .sum();
-        let prompt_tokens = (total_chars / 4) as u32;
-
-        let headroom = tier.optimal_headroom(max_tokens);
-        // Dynamic KV cache bounds: prevent CUDA OOM on 70B models while ensuring ample generation headroom
-        let adaptive_ctx = (prompt_tokens + headroom).clamp(4096, context_size);
-
-        let mut payload = json!({
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+    async fn chat_once(&self, req: &ChatRequest) -> Result<(ChatMessage, Vec<ToolCall>, u32, u32)> {
+        self.breaker.check(&self.cfg.model)?;
+        let body = serde_json::json!({
+            "model": self.cfg.model,
+            "messages": req.messages,
+            "tools": if req.tools.is_empty() { serde_json::Value::Null } else { serde_json::json!(req.tools) },
+            "temperature": req.temperature,
             "stream": false,
-            "options": {
-                "num_ctx": adaptive_ctx,
-                "num_predict": max_tokens,
-                "temperature": temperature
-            }
         });
+        let url = format!("{}/v1/chat/completions", self.cfg.base_url.trim_end_matches('/'));
+        let mut r = HTTP.post(&url).json(&body);
+        if let Some(k) = &self.cfg.api_key { r = r.bearer_auth(k); }
 
-        if let Some(t) = tools {
-            if !t.is_empty() {
-                payload["tools"] = json!(t);
-                payload["tool_choice"] = json!("auto");
-            }
+        let resp = r.timeout(Duration::from_secs(self.cfg.request_timeout_s))
+            .send().await
+            .map_err(|source| { self.breaker.record_failure();
+                AgentError::LlmUnreachable { provider: self.cfg.model.clone(), source } })?;
+
+        if !resp.status().is_success() {
+            self.breaker.record_failure();
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AgentError::LlmStatus { provider: self.cfg.model.clone(), status, body });
         }
+        self.breaker.record_success();
 
-        let response = self
-            .client
-            .post(&chat_url)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_connect() {
-                    format!(
-                        "Connection refused to local AI engine at '{}'. Is your local server (Ollama/LM Studio) running?\n  → Start Ollama: ollama serve\n  → Start LM Studio: open LM Studio and enable the local server",
-                        chat_url
-                    )
-                } else if e.is_timeout() {
-                    format!(
-                        "Request timed out to local AI engine at '{}'. If running a large model (70B+), inference may be compute-constrained.",
-                        chat_url
-                    )
-                } else {
-                    format!("Connection error to local AI engine ({}): {}", chat_url, e)
-                }
-            })?;
+        let v: serde_json::Value = resp.json().await
+            .map_err(|e| AgentError::LlmStatus { provider: self.cfg.model.clone(), status: 200, body: e.to_string() })?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(format!("Local AI model error [HTTP {}]: {}", status, text));
-        }
+        let msg = v.pointer("/choices/0/message").cloned().unwrap_or(serde_json::Value::Null);
+        let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+        let tool_calls: Vec<ToolCall> = msg.get("tool_calls").and_then(|t| t.as_array())
+            .map(|arr| arr.iter().filter_map(|c| {
+                Some(ToolCall {
+                    id: c.get("id")?.as_str()?.to_string(),
+                    name: c.pointer("/function/name")?.as_str()?.to_string(),
+                    arguments: c.pointer("/function/arguments")
+                        .and_then(|a| a.as_str())
+                        .and_then(|s| serde_json::from_str(s).ok())
+                        .unwrap_or(serde_json::Value::Null),
+                })
+            }).collect()).unwrap_or_default();
 
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse model response: {}", e))?;
+        let usage_in  = v.pointer("/usage/prompt_tokens").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+        let usage_out = v.pointer("/usage/completion_tokens").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
 
-        let choice = body
-            .get("choices")
-            .and_then(|c| c.as_array())
-            .and_then(|c| c.first())
-            .ok_or_else(|| "No choices returned by local model".to_string())?;
-
-        let message_val = choice
-            .get("message")
-            .ok_or_else(|| "No message object in choice".to_string())?;
-
-        let message: ChatMessage = serde_json::from_value(message_val.clone())
-            .map_err(|e| format!("Failed to deserialize ChatMessage: {}", e))?;
-
-        Ok(message)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_model_tier_classification() {
-        assert_eq!(ModelTier::from_model_name("llama3.2:3b"), ModelTier::Small);
-        assert_eq!(ModelTier::from_model_name("huihui-qwen35-9b-256k:latest"), ModelTier::Small);
-        assert_eq!(ModelTier::from_model_name("qwen2.5:7b"), ModelTier::Small);
-        assert_eq!(ModelTier::from_model_name("qwen2.5-coder:14b"), ModelTier::Medium);
-        assert_eq!(ModelTier::from_model_name("qwen2.5:32b"), ModelTier::Medium);
-        assert_eq!(ModelTier::from_model_name("llama3.3:70b"), ModelTier::Large);
-        assert_eq!(ModelTier::from_model_name("deepseek-r1:70b"), ModelTier::Large);
-        assert_eq!(ModelTier::from_model_name("qwen2.5:72b-instruct-q4_k_m"), ModelTier::Large);
-    }
-
-    #[test]
-    fn test_tier_headroom() {
-        assert_eq!(ModelTier::Small.optimal_headroom(4096), 2048);
-        assert_eq!(ModelTier::Medium.optimal_headroom(4096), 4096);
-        assert_eq!(ModelTier::Large.optimal_headroom(8192), 8192);
+        Ok((ChatMessage::assistant(content), tool_calls, usage_in, usage_out))
     }
 }
