@@ -1,22 +1,19 @@
-# QSL Agent 
+# QSL Agent
 
 <div align="center">
 
-![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?style=for-the-badge&logo=rust)
+![Rust](https://img.shields.io/badge/Rust-1.89%2B-orange?style=for-the-badge&logo=rust)
 ![License](https://img.shields.io/badge/License-Source--Available%20(Non--Redistributable)-red?style=for-the-badge)
-![Release](https://img.shields.io/badge/Release-v0.2.0%20(Build%202026.11)-brightgreen?style=for-the-badge)
-![Binary Size](https://img.shields.io/badge/Binary-4.5MB%20Stripped-blue?style=for-the-badge)
+![Release](https://img.shields.io/badge/Release-v0.5.0-brightgreen?style=for-the-badge)
 ![Architecture](https://img.shields.io/badge/Architecture-100%25%20Local-purple?style=for-the-badge)
-![Security](https://img.shields.io/badge/Security-Multi--Tier%20Guard-red?style=for-the-badge)
+![Security](https://img.shields.io/badge/Security-3--Tier%20Guard-red?style=for-the-badge)
 ![PKM](https://img.shields.io/badge/PKM-Obsidian%20Native-blueviolet?style=for-the-badge)
 
-**Autonomous, rapid local intelligence agent engine built natively in Rust.**  
-*100% Local Inference | Zero Cloud Accounts | Obsidian PKM Long-Term Memory | Sandboxed Execution Engine*
+**Autonomous, fast, local-first AI agent built natively in Rust.**
+*Local inference | Zero cloud accounts | Obsidian long-term memory | Sandboxed tool execution*
 
-Developed by **[Quantum Secular Labs](https://quantumseclabs.com/)**  
+Developed by **[Quantum Secular Labs](https://quantumseclabs.com/)**
 Repository: **[github.com/0x0806/qsl_agent](https://github.com/0x0806/qsl_agent)**
-
-[Overview](#overview) • [Architecture](#system-architecture--react-loop-design) • [Binary Compilation](#binary-compilation--distribution-guide) • [ReAct Budget](#self-healing-react-engine--dynamic-step-budget) • [Enterprise UI](#enterprise-cli-ui--cognitive-reasoning-indications) • [Skills (18 Seeded)](#seeded-production-skills-catalog-18-skills) • [Security & Approvals](#multi-tier-permission-model--securityguard-sandbox) • [CLI Reference](#command-line-reference--flags) • [About QSL](#about-quantum-secular-labs)
 
 </div>
 
@@ -25,550 +22,386 @@ Repository: **[github.com/0x0806/qsl_agent](https://github.com/0x0806/qsl_agent)
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Architectural Comparison: QSL Agent vs Traditional Python Stacks](#architectural-comparison-qsl-agent-vs-traditional-python-stacks)
-3. [Key Enterprise Features](#key-enterprise-features)
-4. [System Architecture & ReAct Loop Design](#system-architecture--react-loop-design)
-5. [Self-Healing ReAct Engine & Dynamic Step Budget](#self-healing-react-engine--dynamic-step-budget)
-6. [Enterprise CLI UI & Cognitive Reasoning Indications](#enterprise-cli-ui--cognitive-reasoning-indications)
-7. [Multi-Tier Permission Model & SecurityGuard Sandbox](#multi-tier-permission-model--securityguard-sandbox)
-8. [Obsidian-Backed PKM Cortex & Long-Term Memory](#obsidian-backed-pkm-cortex--long-term-memory)
-9. [Seeded Production Skills Catalog (18 Skills)](#seeded-production-skills-catalog-18-skills)
-10. [Local AI Provider Integration & Dynamic Discovery](#local-ai-provider-integration--dynamic-discovery)
-11. [Binary Compilation & Distribution Guide](#binary-compilation--distribution-guide)
-12. [Command-Line Reference & Flags](#command-line-reference--flags)
-13. [Interactive Terminal REPL & Slash Commands](#interactive-terminal-repl--slash-commands)
-14. [Deterministic Tool Reference (13 Built-in Tools)](#deterministic-tool-reference-13-built-in-tools)
-15. [Configuration Reference (`config.toml`)](#configuration-reference-configtoml)
-16. [Troubleshooting & Diagnostics](#troubleshooting--diagnostics)
+2. [Quick Start](#quick-start)
+3. [Key Features](#key-features)
+4. [Architecture](#architecture)
+5. [Self-Healing ReAct Engine](#self-healing-react-engine)
+6. [Terminal UI](#terminal-ui)
+7. [Permission Model & SecurityGuard](#permission-model--securityguard)
+8. [Obsidian Memory, Sessions & Skills](#obsidian-memory-sessions--skills)
+9. [Local AI Providers](#local-ai-providers)
+10. [Command-Line Reference](#command-line-reference)
+11. [Interactive REPL Commands](#interactive-repl-commands)
+12. [Tool Reference](#tool-reference)
+13. [HTTP API](#http-api)
+14. [Configuration](#configuration)
+15. [Building & Testing](#building--testing)
+16. [Troubleshooting](#troubleshooting)
 17. [About Quantum Secular Labs](#about-quantum-secular-labs)
-18. [License & Intellectual Property](#license--intellectual-property)
+18. [License](#license)
 
 ---
 
 ## Overview
 
-QSL Agent is an enterprise-grade autonomous systems agent engineered in native Rust for modern Linux and macOS environments. It communicates directly with on-premise local inference engines—including Ollama, LM Studio, and standard OpenAI-compatible endpoints—without transmitting prompts, data payloads, or runtime telemetry to external cloud infrastructure.
+QSL Agent is an autonomous agent for Linux and macOS. It talks directly to on-premise inference engines (Ollama, LM Studio, llama.cpp, vLLM, LocalAI or any OpenAI-compatible server) and acts on your machine through a sandboxed set of tools. Long-term memory, daily logs and skills live as plain Markdown in your Obsidian vault.
 
-Unlike conventional agent frameworks that rely on large Python runtimes, interpreter overhead, and extensive dependency trees, QSL Agent compiles into an immutable, standalone **4.5 MB stripped binary**. It integrates natively with your local Obsidian vault as a bidirectional Personal Knowledge Management (PKM) cortex, ensuring all memories, operational playbooks, user preferences, and daily logs remain human-readable Markdown files stored securely on your local storage.
+It compiles to a single native binary (about 10 MB stripped, around 2 ms cold start) with no Python runtime and no telemetry. Prompts and data stay on your machine; the only network traffic is to the inference server you configure, plus the optional `web_fetch` tool, which you can disable.
 
----
-
-## Architectural Comparison: QSL Agent vs Traditional Python Stacks
-
-Empirical measurements gathered on x86_64 Linux executing multi-step autonomous development tasks (local Ollama backend, Qwen 2.5 / 3.5 models):
-
-| Metric | Traditional Python Stack (Hermes / AutoGPT) | QSL Agent (Rust v0.2.0) | Performance Advantage |
-|:---|:---:|:---:|:---|
-| **Cold Start Latency** | 450ms – 2,200ms (interpreter + import chain) | **< 3ms** (compiled native ELF binary) | **>150x faster startup** |
-| **Idle Memory Footprint** | 180MB – 420MB (runtime + pip wheels) | **~15MB** (zero garbage collector overhead) | **~94% memory reduction** |
-| **Distribution Footprint** | Multi-GB (virtualenv, site-packages, torch/pip) | **4.5MB Single Stripped Executable** | **Self-contained deployment** |
-| **Runtime Dependencies** | Python 3.10+, pip, build toolchains | **None** (statically linked binary) | **Zero environment drift** |
-| **Telemetry & Cloud Auth**| Mandatory remote API keys or portal sign-ins | **Zero** (100% On-Premise Air-Gapped) | **Absolute Data Sovereignty** |
-| **Persistent Memory Format**| Proprietary vector databases / cloud sync | **Obsidian Markdown (`[[wikilinks]]`)** | **Interoperable, Git-trackable files** |
-| **Step Budget Handling** | Hard failure after N steps with unhandled crash | **Dynamic Self-Healing & Synthesis Fallback** | **Resilient turn completion** |
-| **Safety Interception** | Post-exception handler / unconstrained shell | **Pre-execution Regex Sandbox + 3-Tier Gate** | **Deterministic command filtering** |
+See [CHANGELOG.md](CHANGELOG.md) for the full v0.5 list of fixes and improvements.
 
 ---
 
-## Key Enterprise Features
+## Quick Start
 
-- **Sub-Millisecond Native Execution**: Immediate cold start with low resident memory overhead.
-- **Dynamic Local Model Discovery**: Auto-detects active models from local engines (`/api/tags` and `/v1/models`) without hardcoded model identifiers.
-- **Dynamic Obsidian Vault Discovery**: Recursively detects existing Obsidian vaults via environment variables (`OBSIDIAN_VAULT`), the official app registry (`obsidian.json`), and document directories without hardcoded paths.
-- **Cognitive Reasoning & Thought Display**: Automatically detects and extracts `<think>...</think>` blocks emitted by modern reasoning models (DeepSeek-R1, Qwen 2.5 / 3.5, HuiHui), rendering them inside an executive reasoning frame.
-- **Structured Tool Badges (No Raw JSON Walls)**: Parses and formats tool arguments into structured metadata badges (target path, byte count, line count preview, diff changes) instead of dumping escaped JSON strings.
-- **Self-Healing ReAct Engine**: Adaptive step budget management with loop repetition detection, approaching-limit warnings, interactive extension dialogs, and automated synthesis fallback.
-- **Executive Response Presentation**: Frames completed turn output in high-contrast response cards with zero emoji clutter.
-- **Air-Gapped Privacy Architecture**: Zero network telemetry, zero cloud authentication tokens, and zero external data transmission.
-- **3-Tier Permission Manager**: Granular runtime authorization (`[y]` allow once, `[a]` always allow for session, `[n]` deny) for mutating operations.
-- **SecurityGuard Sandbox**: Real-time regex inspection preventing destructive shell commands (`rm -rf`, raw device writes, system partition tampering) and private key leakage.
-- **18 Seeded Production Skills**: Pre-packaged operational guidelines covering codebase inspection, software development, security audits, Docker, SQL, Git, and Linux administration.
+```bash
+# 1. Start a local engine and pull a model
+ollama serve &
+ollama pull qwen2.5-coder:7b
 
----
+# 2. Build
+git clone https://github.com/0x0806/qsl_agent.git && cd qsl_agent
+./build-test/build.sh                  # -> build-test/bin/qsl-agent
+sudo install -m 755 build-test/bin/qsl-agent /usr/local/bin/qsl-agent
 
-## System Architecture & ReAct Loop Design
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        QSL Agent CLI (Terminal)                        │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                         ┌──────────▼──────────┐
-                         │   CLI & UI Engine   │
-                         │ (Box-drawing Frames)│
-                         └──────────┬──────────┘
-                                    │
-                         ┌──────────▼──────────┐
-                         │  Adaptive ReAct Loop│
-                         │ (Dynamic Controller)│
-                         └─────┬───────────┬───┘
-                               │           │
-        ┌───────────────────────┴──┐     ┌──┴─────────────────────────┐
-        │   Local AI Provider      │     │  Interactive Approval Gate │
-        │  (Ollama / LM Studio)    │     │   [y] Once | [a] Always    │
-        │  Auto-Detect & GGUF      │     │   [n] Deny Session         │
-        └──────────────────────────┘     └──┬─────────────────────────┘
-                                            │
-                         ┌─────────────────▼─────────────────┐
-                         │      SecurityGuard Sandbox        │
-                         │  (Regex Destructive Interceptor)  │
-                         └─────────────────┬─────────────────┘
-                                           │
-                 ┌─────────────────────────┼─────────────────────────┐
-                 │                         │                         │
-      ┌──────────▼──────────┐   ┌──────────▼──────────┐   ┌──────────▼──────────┐
-      │   OS Tools Engine   │   │ Obsidian PKM Memory │   │  18 Domain Skills   │
-      │ (exec, read, write) │   │ (Memories, Profile) │   │ (SKILL.md Workflows)│
-      └─────────────────────┘   └─────────────────────┘   └─────────────────────┘
+# 3. Run
+qsl-agent --health-check               # verify engine, model, vault
+qsl-agent                              # interactive REPL
+qsl-agent "summarise the README in this folder"   # one-shot task
 ```
 
 ---
 
-## Self-Healing ReAct Engine & Dynamic Step Budget
+## Key Features
 
-Traditional autonomous agents frequently fail when models take more reasoning steps than anticipated or get stuck in repetitive action loops, producing fatal errors such as:
-`Agent Error: Agent exceeded maximum ReAct steps (20) for this turn.`
-
-QSL Agent resolves this through a multi-tier adaptive step controller:
-
-### 1. Increased Operational Default
-The default `max_react_steps` budget is set to **35** (configured in both `src/config.rs` and `~/.config/qsl-agent/config.toml`), accommodating multi-phase codebase audits and refactoring tasks.
-
-### 2. Repetition & Loop Interception
-The engine continuously registers executed tool signatures `(tool_name:arguments)`. If an identical tool call is attempted consecutively, the engine injects a system directive:
-```text
-[SYSTEM DIRECTIVE] Repeated tool action detected for 'write_file'. You have already
-executed this action with identical parameters. Do NOT repeat it. Conclude this task
-or transition to the next distinct action now.
-```
-This breaks model hallucinations and prevents infinite spinning on duplicate commands.
-
-### 3. Approaching-Budget Warning
-When `max_steps - 3` is reached, QSL Agent injects an early notice into the model context:
-```text
-[SYSTEM DIRECTIVE] Approaching step budget limit (step 32 of 35). Conclude remaining
-tool operations immediately and synthesize your final comprehensive response.
-```
-
-### 4. Interactive Budget Extension Modal
-If an interactive turn reaches the step ceiling, QSL Agent pauses and presents an interactive resolution menu:
-```text
-╭── [STEP LIMIT REACHED] ───────────────────────────────────────────╮
-│  Agent reached step budget limit (35/35 steps).                   │
-├───────────────────────────────────────────────────────────────────┤
-│  [c] Extend (+15 steps)  │  [f] Force synthesis  │  [s] Stop turn    │
-╰───────────────────────────────────────────────────────────────────╯
-  action [c/f/s] > 
-```
-- **`[c]` Extend**: Dynamically grants +15 additional ReAct steps to complete complex execution trees.
-- **`[f]` Force Synthesis**: Requests an immediate conclusion without tools, prompting the model to summarize all findings gathered so far.
-- **`[s]` Stop Turn**: Cleanly halts execution and preserves context without crashing.
-
-### 5. Automated Non-Interactive Fallback (`-P`)
-In headless script or CI mode (`-P`), QSL Agent automatically extends the budget once up to 50 steps. If the step limit is reached, it automatically invokes a zero-tool synthesis completion turn. The user **always receives a completed response** instead of an unhandled exception.
+- **Live streaming UI**: tokens, reasoning (`<think>`, `reasoning_content`, Ollama `thinking`) and tool activity render live in box-drawing frames, with no emojis.
+- **Adaptive ReAct engine**: parallel read-only tool calls, a repetition guard, a step budget with interactive extension, self-healing for truncated tool JSON, and a guaranteed final answer.
+- **Works with any local model**: native tool calling where supported, automatic fallback to the Hermes `<tool_call>` text protocol where not, plus argument repair and alias handling for small models.
+- **Real context management**: Ollama's native API with a true `num_ctx` (auto-clamped to the model's maximum), LLM summarisation of older turns, and repair of interrupted tool calls.
+- **Sessions**: every conversation is saved; resume with `-C` or `/resume`; `/undo`, `/retry`, `/export`; search past sessions.
+- **Checkpoints**: every file write or edit is backed up first, so `/rollback` undoes the last turn's file changes.
+- **3-tier SecurityGuard**: catastrophic commands are hard-blocked, risky ones always reviewed; paths are symlink- and `..`-safe; secrets are redacted.
+- **Obsidian cortex**: profile and memories in the system prompt, ranked memory search, daily journals, wikilinks.
+- **31 built-in skills**, plus your own `SKILL.md` playbooks (vault, `~/.config/qsl-agent/skills`, or per-project `.qsl/skills`).
+- **Sub-agents**: `delegate_task` hands self-contained research to a fresh-context sub-agent.
+- **Ctrl+C stops the current turn** (and its child processes), not the program.
+- **Scriptable**: `--json`, `--quiet`, stdin input, exit codes, and an HTTP API (`--serve`).
 
 ---
 
-## Enterprise CLI UI & Cognitive Reasoning Indications
+## Architecture
 
-QSL Agent features a minimal, high-contrast terminal user interface built strictly with Unicode box-drawing characters (`╭`, `─`, `╮`, `│`, `╰`, `╯`, `├`, `┤`). In compliance with enterprise standards, it uses **zero emojis**.
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  CLI / REPL (rustyline: history, completion, multi-line)  |  HTTP API      │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │
+                        ┌──────────▼──────────┐       ┌──────────────────────┐
+                        │  Adaptive ReAct Loop │◄─────►│ Context Manager       │
+                        │  (agent.rs)          │       │ compaction, repair    │
+                        └─────┬──────────┬────┘       └──────────────────────┘
+                              │          │
+            ┌─────────────────▼──┐   ┌───▼──────────────────────┐
+            │ LLM Client          │   │ Approval Gate             │
+            │ OpenAI SSE / Ollama │   │ ask | always | strict |   │
+            │ native NDJSON,      │   │ yolo  [y][a][n][d]        │
+            │ retries, fallback   │   └───┬──────────────────────┘
+            └─────────────────────┘       │
+                                  ┌───────▼─────────────────────┐
+                                  │ SecurityGuard (deny / ask)  │
+                                  │ path resolution, redaction  │
+                                  └───────┬─────────────────────┘
+          ┌──────────────────────┬────────┴──────────┬──────────────────────┐
+┌─────────▼────────┐ ┌───────────▼───────┐ ┌─────────▼────────┐ ┌───────────▼──────┐
+│ Shell & FS tools │ │ Obsidian memory   │ │ Skills (31+)     │ │ Sessions,        │
+│ + checkpoints    │ │ + daily journal   │ │ SKILL.md         │ │ todo, sub-agents │
+└──────────────────┘ └───────────────────┘ └──────────────────┘ └──────────────────┘
+```
 
-### 1. Cognitive Reasoning Frame
-Models emitting `<think>...</think>` blocks (such as DeepSeek-R1, Qwen 2.5 / 3.5, and fine-tuned quantized models) have their internal chain of thought extracted and displayed inside an executive card:
+| Module | Responsibility |
+|:--|:--|
+| `agent.rs` | ReAct loop, tool orchestration, compaction, sub-agents |
+| `provider.rs` | OpenAI-compatible and Ollama-native clients, streaming parsers, retries |
+| `tools/` | Tool schemas and implementations (`fs`, `shell`, `web`) |
+| `security.rs` / `approval.rs` | Command classification, path policy, permission prompts |
+| `memory.rs` / `skills.rs` / `session.rs` / `checkpoint.rs` | Persistence layers |
+| `ui.rs` / `cli.rs` / `server.rs` | Terminal UI, REPL, HTTP API |
+
+---
+
+## Self-Healing ReAct Engine
+
+- **Step budget** (`max_react_steps`, default 35). Two steps before the limit, the model is told to wrap up. At the limit, interactive sessions get a menu:
+  ```text
+  ╭── [STEP LIMIT REACHED] ─────────────────────────────────────────
+  │  Agent reached its step budget (35/35 steps).
+  ├─────────────────────────────────────────────────────────────────
+  │  [c] Extend (+15 steps)  │  [f] Force synthesis  │  [s] Stop turn
+  ```
+  Headless runs extend once automatically, then force a tool-free synthesis, so you always get an answer.
+- **Repetition guard**: the second identical call gets a warning appended to its result; the third is blocked.
+- **Truncated tool JSON** (output limit hit mid-call): the agent asks the model to continue in smaller pieces (`append_file`).
+- **Empty or reasoning-only replies**: a targeted nudge asks for the visible answer; as a last resort the reasoning itself is returned.
+- **Context overflow** reported by the engine: compact, then retry once.
+- **Interrupted turns** (Ctrl+C): partial results stay in context and dangling tool calls are repaired automatically.
+
+---
+
+## Terminal UI
+
+The UI uses Unicode box drawing only. Every frame adapts to the terminal width, and colours respect `NO_COLOR` / `--no-color`.
 
 ```text
 ╭── [REASONING & COGNITIVE PLANNING] ───────────────────────────────────
-│  Analyzing project directory hierarchy and locating Cargo manifests...
-│  Found Cargo.toml with 14 dependencies.
-│  Planning syntax check via cargo check before performing surgical edits...
+│  The user wants the .txt files in proj/. I'll locate them with
+│  find_files, then read each one.
 ╰───────────────────────────────────────────────────────────────────────
-```
-
-### 2. Structured Action Badges (No Raw JSON Dumps)
-Tool calls are parsed into structured badges displaying relevant metadata rather than escaped JSON text:
-
-```text
-╭── [ACTION: write_file] ───────────────────────────────────────────
-│  Target:      src/main.rs
-│  Payload:     1,420 bytes (42 lines)
-╰───────────────────────────────────────────────────────────────────
-```
-
-```text
-╭── [ACTION: execute_command] ──────────────────────────────────────
-│  Command:     cargo test --all
-╰───────────────────────────────────────────────────────────────────
-```
-
-```text
-╭── [ACTION: edit_file] ────────────────────────────────────────────
-│  Target:      src/config.rs
-│  Diff:        replace 45 bytes with 52 bytes
-╰───────────────────────────────────────────────────────────────────
-```
-
-### 3. Clean Result Cards
-Outputs from commands and filesystem operations are bounded to prevent terminal flooding while preserving exit codes and byte telemetry:
-
-```text
-╭── [RESULT: execute_command] [OK] ─────────────────────────────────
-│  test result: ok. 14 passed; 0 failed; 0 ignored; finished in 0.06s
-╰───────────────────────────────────────────────────────────────────
-```
-
-### 4. Executive Final Response Card
-The synthesized answer is delivered in a distinguished executive card:
-
-```text
-╭── [EXECUTIVE RESPONSE] ───────────────────────────────────────────────
-│
-│  The codebase audit is complete. All 14 unit tests pass with zero
-│  regressions. Architecture documentation has been synchronized to Obsidian.
-│
+╭── [ACTION: find_files] ───────────────────────────────────────────────
+│  pattern:     *.txt
 ╰───────────────────────────────────────────────────────────────────────
+╭── [RESULT: find_files] [OK] [0.0s] ───────────────────────────────────
+│  2 file(s):
+╰───────────────────────────────────────────────────────────────────────
+╭── [RESPONSE] ─────────────────────────────────────────────────────────
+│  There are 2 .txt files: a.txt (alpha) and b.txt (beta).
+╰───────────────────────────────────────────────────────────────────────
+  [31.5s | 4 steps | 3 tools | ctx 4.0k/16.4k 25% | in 15.7k out 356 (11 tok/s)]
 ```
 
 ---
 
-## Multi-Tier Permission Model & SecurityGuard Sandbox
+## Permission Model & SecurityGuard
 
-### 1. Interactive Permission Review (Mutating Tools)
-When the model invokes a state-altering tool (`execute_command`, `write_file`, `edit_file`, `obsidian_write`, `obsidian_append`, `skill_create`), QSL Agent suspends execution and displays an authorization prompt:
+### Approval modes (`-a`, `/approval`, `approval_mode`)
+
+| Mode | Normal mutating tools (write, edit, shell, ...) | Risky commands (rm, sudo, git push, installs, kill, ...) |
+|:--|:--|:--|
+| `ask` *(default)* | Prompt `[y]` once, `[a]` session, `[n]` deny, `[d]` deny for the session | Prompt every time (`[a]` not offered) |
+| `always` | Automatic | Prompt every time |
+| `strict` | Prompt every time | Prompt every time |
+| `yolo` | Automatic | Automatic (**sandboxes only**) |
+
+Read-only tools never prompt. Memory appends and skill creation write only into the agent's own vault area and don't prompt in `ask` mode. Pressing **Enter means deny**. In non-interactive runs (`-P`, `--serve`), risky commands and everything under `strict` are denied with an explanation the model can act on.
 
 ```text
-╭─── [PERMISSION REVIEW] ───────────────────────────────────────────╮
-│  Tool:    write_file
-│  Target:  src/agent.rs
-│  Payload: 12,480 bytes (394 lines)
-├───────────────────────────────────────────────────────────────────┤
-│  [y] Allow once  │  [a] Always allow (session)  │  [n] Deny
-│  Tip: Select [a] to auto-approve subsequent steps without pausing
-╰───────────────────────────────────────────────────────────────────╯
-  permission > 
+╭── [PERMISSION REVIEW] ────────────────────────────────────────────────
+│  Tool:      execute_command
+│  Command:   rm build/old.log
+│  Risk:      deletes files
+├───────────────────────────────────────────────────────────────────────
+│  [y] Allow once  │  [n] Deny  │  [d] Deny (session)
+╰───────────────────────────────────────────────────────────────────────
+  permission [y/a/n/d] (default n) >
 ```
 
-- **`[y]` Allow Once**: Approves only this specific call.
-- **`[a]` Always Allow**: Authorizes this tool class for the remainder of the session without interrupting again.
-- **`[n]` Deny**: Instantly rejects execution and feeds the refusal message back into the model so it can formulate an alternative plan.
+### SecurityGuard
 
-Permission modes can be set via `/approval <ask | always | strict>` or using the `-a` CLI argument:
-- **`Ask`** *(Default)*: Interactively prompts for any mutating call; read-only operations pass automatically.
-- **`Always`**: Autonomous execution for trusted workflows.
-- **`Strict`**: Every mutating call requires manual `[y]` approval (session-wide bypass disabled).
-
-### 2. SecurityGuard Regex Sandbox
-Before any shell command or filesystem write is executed, `SecurityGuard` inspects the payload:
-- **Destructive Deletion Interception**: Intercepts `rm -rf`, `find -delete`, `find -exec rm`, `xargs rm`, and `shred`.
-- **Filesystem Integrity**: Blocks raw device overwrites (`> /dev/sd*`, `> /dev/nvme*`), partition tools (`fdisk`, `parted`), and `mkfs`.
-- **Privilege & Secret Shield**: Prohibits direct access or reads to `/etc/shadow`, `/etc/sudoers`, SSH private keys (`id_rsa`, `id_ed25519`), AWS credentials, and kubeconfigs.
-- **Protected Mounts**: Rejects file write operations targeting `/boot`, `/sys`, `/proc`, `/dev`, `/usr/bin`, `/sbin`, and `/etc`.
-- **Execution Ceiling**: Imposes an asynchronous timeout (default: 30s) to abort hanging processes.
+- **Hard-blocked in every mode**: recursive deletion of `/`, `~`, `.` or `*`; `mkfs`; partition editors; raw writes to block devices; fork bombs; `curl|sh`-style remote execution; base64-decoded payloads piped to a shell; `/dev/tcp` reverse shells; reading `/etc/shadow` or SSH private keys; power-state changes; firewall flushes; erasing shell history.
+- **Paths are resolved** (normalised, symlinks followed) before checking. Sensitive files (`/etc/shadow`, SSH keys, `~/.aws/credentials`, `~/.kube/config`, `~/.netrc`, `~/.gnupg/`, ...) cannot be read; system directories (`/etc`, `/usr`, `/boot`, `/sys`, ...) cannot be written. The agent cannot rewrite its own config file. Set `allowed_roots` to confine file tools to specific directories.
+- **Commands** run in their own process group with a timeout. A timeout or Ctrl+C kills the whole tree.
+- **Secrets** (private keys, `sk-`, `ghp_`, `AKIA`, Slack and Google tokens) are redacted from displayed output, memories and journals.
 
 ---
 
-## Obsidian-Backed PKM Cortex & Long-Term Memory
-
-QSL Agent integrates with your local Obsidian vault to store its memory cortex:
+## Obsidian Memory, Sessions & Skills
 
 ```
-Your_Obsidian_Vault/
-└── QSL_Agent/
-    ├── Profile.md          # Agent identity, user preferences, hardware environment
-    ├── Memories.md         # Persistent lessons, project facts, architecture decisions
-    ├── Daily/
-    │   └── 2026-11-03.md   # Chronological session logs with timestamps
-    ├── Architecture/       # Project blueprints and repository analysis notes
-    ├── Security/           # Vulnerability audit reports and CVE assessments
-    ├── Research/           # Technical reference digests and API documentation
-    └── Skills/             # 18 seeded and dynamically authored SKILL.md files
+Your_Obsidian_Vault/QSL_Agent/
+├── Profile.md        # identity, user and host profile (loaded into every session)
+├── Memories.md       # one fact per bullet (recent facts in the prompt, older ones via memory_search)
+├── Daily/2026-11-04.md   # journal of every turn
+├── Architecture/  Security/  Research/
+└── Skills/<name>/SKILL.md   # 31 seeded skills plus the ones the agent creates
 ```
 
-- **Dynamic Vault Auto-Discovery**: Automatically scans the `OBSIDIAN_VAULT` environment variable, the official Obsidian app registry (`obsidian.json`), and document directories (`~/Documents/*`, `~/Obsidian`, `~/Notes`, `~/Vault`) for active `.obsidian/` roots. If no vault exists yet, it cleanly initializes a default at `~/Documents/Obsidian_Vault`. Use `/vault` in the REPL to list detected vaults or `/vault auto` to re-trigger discovery.
-- **Profile & Context Injection**: On every new session, recent entries from `Profile.md` and `Memories.md` are dynamically summarized and injected into the agent's system prompt.
-- **Daily Journaling**: Every completed turn automatically logs timestamped exchanges into `Daily/YYYY-MM-DD.md`.
-- **Bidirectional Links**: The agent utilizes Obsidian `[[wikilinks]]` to interlink concepts and project notes.
+- **Vault discovery**: `$OBSIDIAN_VAULT`, the Obsidian app registry (including Flatpak), `~/Documents/*`, `~/Obsidian`, `~/Notes`, `~/Vault`, home sub-folders, and the current directory. `/vault auto` re-detects.
+- **Memory**: the agent saves durable facts with `obsidian_append` (duplicates skipped) and can search (`memory_search`) or correct (`memory_forget`) them. Use `/remember`, `/forget` and `/memory [query]` yourself.
+- **Sessions** are stored in `~/.local/state/qsl-agent/sessions/`. Use `qsl-agent -C` to continue the last one, `/sessions` and `/resume 3` to switch, and `/export md`. The agent can search past sessions with `session_search`.
+- **Skills** use progressive disclosure: only names and descriptions go into the prompt, and full procedures load via `skill_read`. Pin one with `/use rust-cargo`. Project-local skills in `.qsl/skills/` override vault copies.
+- **Project instructions**: `AGENTS.md`, `QSL.md`, `.qsl/instructions.md` or `CLAUDE.md` in the working directory are loaded automatically.
+
+Built-in skills: `api-design`, `benchmark`, `code-review`, `codebase-inspection`, `data-analysis`, `data-transform`, `database-sql`, `debug`, `dependency-update`, `doc-writer`, `docker-container`, `explain-code`, `file-organizer`, `git-workflow`, `incident-response`, `markdown-docs`, `migration`, `network-diagnostics`, `obsidian-vault-manager`, `python-env`, `refactor`, `rust-cargo`, `security-audit`, `shell-script`, `software-development`, `sql-query`, `system-ops`, `test-writer`, `text-processing`, `web-research`, `yaml-toml-config`.
 
 ---
 
-## Seeded Production Skills Catalog (18 Skills)
+## Local AI Providers
 
-Skills are hot-reloaded automatically on boot from:
-1. `~/.config/qsl-agent/skills/`
-2. `<Obsidian_Vault>/QSL_Agent/Skills/`
-3. `./skills/`
+| Provider | Default endpoint | Protocol |
+|:--|:--|:--|
+| `ollama` *(default)* | `http://127.0.0.1:11434` | Native `/api/chat` (applies `num_ctx`, streams `thinking`) |
+| `lmstudio` | `http://127.0.0.1:1234/v1` | OpenAI-compatible SSE |
+| `custom` | `-e URL` / `custom_url` | OpenAI-compatible SSE (llama.cpp, vLLM, LocalAI, OpenRouter, ...) |
 
-| Skill Name | Description | Key Domain Tags |
-|:---|:---|:---|
-| **`api-design`** | RESTful APIs, OpenAPI specifications, error contracts, and JSON schema validation. | `api`, `rest`, `openapi`, `contracts` |
-| **`codebase-inspection`** | Systematically map directory hierarchies, LOC metrics, and architectural composition. | `code`, `inspection`, `architecture` |
-| **`data-analysis`** | CSV/JSON inspection, data transformations, frequency analysis, and statistics. | `data`, `csv`, `json`, `statistics` |
-| **`database-sql`** | SQLite/PostgreSQL schema analysis, query indexing, transactions, and optimizations. | `database`, `sql`, `sqlite`, `queries` |
-| **`docker-container`** | Multi-stage Dockerfiles, minimal base images, non-root users, and `.dockerignore`. | `docker`, `containers`, `devops`, `cloud` |
-| **`file-organizer`** | Directory structure cleanup, project scaffolding, and `.gitignore` auditing. | `files`, `organize`, `scaffold`, `cleanup` |
-| **`git-workflow`** | Conventional commits, atomic branch management, diff audits, and release tags. | `git`, `commits`, `branches`, `diff` |
-| **`markdown-docs`** | Professional technical documentation, specifications, and README authoring. | `markdown`, `docs`, `readme`, `technical` |
-| **`network-diagnostics`** | Port scanning, DNS resolution, socket checks, and HTTP endpoint health probes. | `network`, `dns`, `ports`, `http` |
-| **`obsidian-vault-manager`** | Bidirectional wikilinks (`[[Topic]]`), YAML frontmatter taxonomies, and daily logs. | `obsidian`, `pkm`, `knowledge`, `notes` |
-| **`python-env`** | `uv` and virtual environment management, packaging, and `pyproject.toml` dependency tracking. | `python`, `uv`, `venv`, `packaging` |
-| **`rust-cargo`** | Cargo check/build, strict clippy linting, audit checks, and release binary tuning. | `rust`, `cargo`, `clippy`, `performance` |
-| **`security-audit`** | Secrets hunting, command injection reviews, CVE scans, and permission boundaries. | `security`, `audit`, `injection`, `cve` |
-| **`software-development`** | Hypothesis-first debugging, test-driven development (TDD), and surgical modifications. | `debugging`, `tdd`, `refactoring`, `software` |
-| **`system-ops`** | Arch Linux / Linux administration, pacman/yay telemetry, systemd, and resource checks. | `linux`, `arch`, `systemd`, `performance` |
-| **`text-processing`** | Stream parsing with `ripgrep`, `awk`, `sed`, `grep`, and regular expressions. | `text`, `sed`, `awk`, `grep`, `regex` |
-| **`web-research`** | Local curl queries, offline documentation retrieval, and API payload extraction. | `web`, `curl`, `research`, `docs` |
-| **`yaml-toml-config`** | Syntax validation, schema checking, and safe editing of configuration files. | `yaml`, `toml`, `json`, `config` |
+```bash
+qsl-agent -p lmstudio
+qsl-agent -e http://127.0.0.1:8080/v1 -m my-model            # llama-server
+QSL_API_KEY=sk-... qsl-agent -e https://openrouter.ai/api/v1 -m qwen/qwen3-coder
+```
+
+If `model` is empty, the first chat model on the engine is used (embedding models are skipped). Models without native tool calling (e.g. templates that report only the `completion` capability) automatically switch to the `<tool_call>` text protocol. Switch at runtime with `/models`, `/model <name>` and `/provider <name> [url]`.
 
 ---
 
-## Local AI Provider Integration & Dynamic Discovery
-
-QSL Agent requires **zero hardcoded model dependencies**. On startup, it dynamically queries the active engine catalog:
-
-### 1. Ollama (Default Engine)
-```bash
-# Start Ollama engine
-ollama serve
-
-# Pull any model suited for your hardware
-ollama pull huihui-qwen35-9b-256k:latest
-# or
-ollama pull qwen2.5-coder:7b
-# or
-ollama pull llama3.3:latest
-
-# Launch QSL Agent - it automatically detects and binds to your model:
-./Releases/qsl-agent
-```
-
-- **Dynamic Fallback**: If multiple models exist, QSL Agent binds to the first available model.
-- **Runtime Model Switch**: Type `/models` inside the REPL to list models, and `/model <name>` to switch instantly.
-
-### 2. LM Studio
-1. Open LM Studio on your workstation.
-2. Navigate to the **Local Server** tab.
-3. Load any quantized GGUF model and start the server on port `1234`.
-4. Run QSL Agent targeting LM Studio:
-   ```bash
-   ./Releases/qsl-agent -p lmstudio
-   ```
-
-### 3. Custom OpenAI-Compatible Endpoints
-Supports `vLLM`, `llama.cpp` server (`llama-server`), `LocalAI`, or any self-hosted inference engine exposing `/v1/chat/completions`:
-```bash
-./Releases/qsl-agent -p custom -e http://127.0.0.1:8080/v1
-```
-
----
-
-## Binary Compilation & Distribution Guide
-
-### Do We Need the `target/` Folder to Run or Distribute?
-**No.** The `target/` folder is exclusively an intermediate scratch workspace created by Cargo during compilation. It stores temporary compiler artifacts, dependency caches (`.rlib`), and debug symbol tables. 
-
-Once compilation completes, the resulting executable (`target/release/qsl_agent`) is completely self-contained. You do not need to ship, copy, or retain the `target/` folder.
-
-### Step-by-Step Binary Creation
-
-#### 1. Prerequisites
-- Linux (x86_64, aarch64) or macOS (Apple Silicon / Intel)
-- Rust toolchain 1.80+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
-
-#### 2. Clone the Repository
-```bash
-git clone https://github.com/0x0806/qsl_agent.git
-cd qsl_agent
-```
-
-#### 3. Build with Maximum Release Optimizations
-```bash
-cargo build --release
-```
-This builds an optimized binary located at `target/release/qsl_agent`.
-
-#### 4. Strip Debug Symbols for Minimal Size
-Strip the symbol table to reduce binary size from ~30MB down to **4.5 MB**:
-```bash
-strip target/release/qsl_agent
-```
-
-#### 5. Install or Stage the Binary
-You can copy the binary into `Releases/` for local execution or install it globally to your system path:
-```bash
-# Stage in project release directory
-mkdir -p Releases
-install -m 755 target/release/qsl_agent Releases/qsl-agent
-
-# Or install system-wide
-sudo install -m 755 target/release/qsl_agent /usr/local/bin/qsl-agent
-```
-
-#### 6. Clean Intermediate Build Artifacts
-You can safely remove the `target/` folder after compilation to recover disk space:
-```bash
-cargo clean
-```
-The installed binary in `Releases/qsl-agent` or `/usr/local/bin/qsl-agent` will continue to run independently with zero external dependencies.
-
----
-
-## Command-Line Reference & Flags
+## Command-Line Reference
 
 ```text
-Usage: qsl-agent [OPTIONS]
+Usage: qsl-agent [OPTIONS] [PROMPT]...
 
-Options:
-  -P, --prompt <PROMPT>            Non-interactive prompt to execute immediately
-  -m, --model <MODEL>              Target model name (e.g. huihui-qwen35-9b-256k:latest)
-  -p, --provider <PROVIDER>        Provider engine: ollama, lmstudio, or custom
-  -e, --endpoint <ENDPOINT>        Custom endpoint URL (e.g. http://127.0.0.1:11434)
-  -v, --vault <VAULT>              Path to Obsidian Vault (defaults to auto-detected local vault)
-  -a, --approval <APPROVAL>        Approval mode: ask, always, strict
-  -t, --temperature <TEMP>         Sampling temperature between 0.0 and 2.0 (default: 0.2)
-  -c, --context-size <SIZE>        Context window in tokens (default: 16384)
-      --list-models                List detected local models and exit
-      --show-config                Print active configuration TOML and exit
-      --health-check               Run comprehensive system health check and exit
-  -h, --help                       Print help information
-  -V, --version                    Print version information
+  [PROMPT]...                 One-shot task (same as -P)
+  -P, --prompt <PROMPT>       Non-interactive prompt ("-" reads stdin)
+  -m, --model <MODEL>         Model name
+  -p, --provider <PROVIDER>   ollama | lmstudio | custom
+  -e, --endpoint <URL>        Custom OpenAI-compatible endpoint (implies custom)
+      --api-key <KEY>         Bearer token for remote endpoints [env: QSL_API_KEY]
+  -v, --vault <PATH>          Obsidian vault
+  -a, --approval <MODE>       ask | always | strict | yolo
+      --yolo                  Same as --approval yolo
+  -t, --temperature <T>       0.0 - 2.0
+  -c, --context-size <N>      Context window (tokens)
+      --max-steps <N>         ReAct steps per turn
+      --config <PATH>         Config file [env: QSL_CONFIG]
+  -C, --continue              Continue the most recent session
+  -r, --resume <ID>           Resume a session (id, prefix or list number)
+      --no-stream             Disable token streaming
+      --no-color              Disable colours
+  -q, --quiet                 One-shot: print only the final answer
+      --json                  One-shot: print a JSON result
+      --serve [ADDR]          HTTP API (default 127.0.0.1:8765)
+      --list-models / --list-sessions / --show-config / --health-check
+      --verbose               Debug log to <state_dir>/qsl-agent.log
 ```
 
-### Common Usage Examples
 ```bash
-# Launch interactive REPL with auto-detected local model
-qsl-agent
-
-# Execute a one-shot automated task non-interactively
-qsl-agent -P "Audit src/ for security issues and record findings in Obsidian"
-
-# Run with LM Studio and strict permissions
-qsl-agent -p lmstudio -a strict
-
-# Run health diagnostics
-qsl-agent --health-check
+qsl-agent "Audit src/ for security issues and record findings in Obsidian"
+git diff | qsl-agent -q "write a conventional commit message for this diff"
+qsl-agent --json -a strict "list TODOs in this repo" | jq -r .reply
 ```
 
+Exit codes: `0` success, `1` agent or engine error, `2` usage error, `130` interrupted.
+
 ---
 
-## Interactive Terminal REPL & Slash Commands
+## Interactive REPL Commands
 
-When launched without a prompt argument, QSL Agent starts an interactive shell:
+| Command | Description |
+|:--|:--|
+| `/help` | Command manual |
+| `/health` | Engine, model, vault, skills, state and host-tool diagnostics |
+| `/models`, `/model <name>` | List or switch models (the conversation is kept) |
+| `/provider <p> [url]` | Switch engine |
+| `/approval <mode>` (`/mode`) | `ask` \| `always` \| `strict` \| `yolo` |
+| `/vault [path\|auto]` | Show or switch the Obsidian vault |
+| `/memory [query]`, `/remember <fact>`, `/forget <text>` | Long-term memory |
+| `/skills`, `/skill <name>`, `/use <name\|off>` | Skill catalog, instructions, pinning |
+| `/todo` | Current task plan |
+| `/sessions [rm <id>]`, `/resume <id\|#>`, `/new` (`/clear`), `/title <t>` | Sessions |
+| `/undo [n]`, `/retry` | Rewind turns or re-run the last prompt |
+| `/rollback`, `/checkpoints` | Undo the last turn's file changes |
+| `/compact` | Summarise older context now |
+| `/export [md\|json] [path]` | Export the conversation |
+| `/usage` (`/stats`) | Token and session statistics |
+| `/think on\|off`, `/stream on\|off` | Display toggles |
+| `/tools`, `/cd <dir>`, `/config`, `/exit` | Misc |
 
-```text
-╭────────────────────────────────────────────────────────────────────────────╮
-│ QSL AGENT — AUTONOMOUS LOCAL INTELLIGENCE (v0.2.0)                         │
-│ [100% LOCAL]  [ZERO CLOUD]  [OBSIDIAN CORTEX]  [SECURITY GUARD]            │
-├────────────────────────────────────────────────────────────────────────────┤
-│ Engine:    ollama                                                          │
-│ Model:     huihui-qwen35-9b-256k:latest                                    │
-│ Approval:  Ask [Interactive Review: y/a/n]                                 │
-│ Skills:    18 operational skills active                                    │
-│ Vault:     /home/user/Documents/Obsidian_Vault                             │
-│ Org:       Quantum Secular Labs (https://quantumseclabs.com/)              │
-├────────────────────────────────────────────────────────────────────────────┤
-│ Tip: Type /help for command manual or enter any autonomous task prompt.    │
-╰────────────────────────────────────────────────────────────────────────────╯
+Input: end a line with `\` or wrap text in `"""` for multi-line prompts; start with `//` to send a literal `/`; Tab completes commands and arguments; **Ctrl+C interrupts the running turn** (press twice to force quit).
 
-qsl-agent > 
+---
+
+## Tool Reference
+
+| Tool | Class | Description |
+|:--|:--|:--|
+| `execute_command` | mutating | Shell command (`command`, optional `workdir`, `timeout`) |
+| `read_file` | read | Text file, optional `start_line` / `end_line` |
+| `write_file` | mutating | Create or overwrite (atomic, checkpointed) |
+| `append_file` | mutating | Append (for large files) |
+| `edit_file` | mutating | Unique exact replacement (`target` → `replacement`, `replace_all`) |
+| `list_dir` | read | Directory listing with sizes (`depth` 1-3) |
+| `search_files` | read | Regex search across files (`pattern`, `path`, `glob`, `ignore_case`) |
+| `find_files` | read | Glob file search |
+| `todo` | read | Task plan for multi-step work |
+| `obsidian_search` / `obsidian_read` / `obsidian_list` | read | Vault access |
+| `obsidian_write` | mutating | Create, overwrite or append a note |
+| `obsidian_append` | mutating* | Save a long-term memory |
+| `memory_search` / `memory_forget` | read / mutating | Query or correct memories |
+| `skill_list` / `skill_read` / `skill_create` | read / read / mutating* | Skills |
+| `session_search` | read | Search past conversations |
+| `web_fetch` | read | HTTP GET with HTML-to-text (`allow_web = false` disables it) |
+| `delegate_task` | read | Run a sub-agent on a self-contained subtask |
+
+\* Low-risk writes into the agent's own vault area; no prompt in `ask` mode.
+
+---
+
+## HTTP API
+
+```bash
+QSL_API_TOKEN=change-me qsl-agent --serve 127.0.0.1:8765
+curl -s localhost:8765/v1/chat -H 'authorization: Bearer change-me' \
+     -H 'content-type: application/json' -d '{"message":"what changed in git today?"}'
 ```
 
-### Slash Commands
-| Command | Alias | Description |
-|:---|:---|:---|
-| `/help` | — | Display the interactive command guide. |
-| `/health` | — | Run live health probe on engine, models, and vault. |
-| `/models` | — | Query and list all models loaded on current engine. |
-| `/model <name>` | — | Switch the active inference model on the fly. |
-| `/provider <p>` | — | Switch backend engine (`ollama`, `lmstudio`, `custom`). |
-| `/approval <m>` | `/mode` | Change approval mode (`ask`, `always`, `strict`). |
-| `/vault [path]` | — | View or switch active Obsidian vault path. |
-| `/memory` | — | Inspect profile and recent long-term memories. |
-| `/remember <txt>` | — | Append a custom fact or rule directly to Obsidian. |
-| `/skills` | — | Display a formatted catalog table of all loaded skills. |
-| `/skill <name>` | — | Read the procedural markdown rules for a skill. |
-| `/clear` | — | Clear current conversation history. |
-| `/config` | — | Output active configuration TOML. |
-| `/exit` | `/quit` | Terminate session and exit. |
+| Endpoint | Body / result |
+|:--|:--|
+| `POST /v1/chat` | `{"message": "...", "session_id"?: "...", "new_session"?: false}` → `{"ok", "reply", "session_id", "steps", "tool_calls", "elapsed_ms", "tokens_in", "tokens_out"}` |
+| `GET /health` | Engine status, model, context size |
+| `GET /v1/sessions` | Saved sessions |
+
+Requests are processed one at a time and run non-interactively. Binding to a non-loopback address requires `QSL_API_TOKEN`. A systemd user unit is provided in `systemd/qsl-agent.service`.
 
 ---
 
-## Deterministic Tool Reference (13 Built-in Tools)
+## Configuration
 
-| Tool Name | Parameters | Description |
-|:---|:---|:---|
-| `execute_command` | `command: string` | Run sandboxed local bash command with timeout protection. |
-| `read_file` | `path: string`, `offset?: int`, `limit?: int` | Read text file or slice specific line ranges. |
-| `write_file` | `path: string`, `content: string` | Create or overwrite file on disk. |
-| `edit_file` | `path: string`, `target: string`, `replacement: string` | Surgical string find-and-replace in file. |
-| `list_dir` | `path?: string` | List directory contents with entry types (`DIR`, `FILE`, `LINK`). |
-| `obsidian_search` | `query: string` | Full-text keyword search across all notes in vault. |
-| `obsidian_read` | `note_path: string` | Read note contents from Obsidian vault by relative path. |
-| `obsidian_write` | `note_path: string`, `content: string` | Create or update note in Obsidian vault. |
-| `obsidian_list` | `subfolder?: string` | Catalog available notes in vault or subfolder. |
-| `obsidian_append` | `memory: string` | Append timestamped memory to `QSL_Agent/Memories.md`. |
-| `skill_list` | — | List all available domain skills with summaries. |
-| `skill_read` | `name: string` | Read step-by-step procedural guidelines for a skill. |
-| `skill_create` | `name: str`, `desc: str`, `tags: [str]`, `instructions: str` | Author and persist a new skill directly to the vault. |
-
----
-
-## Configuration Reference (`config.toml`)
-
-Configurations are persisted in `~/.config/qsl-agent/config.toml`:
+The config lives in `~/.config/qsl-agent/config.toml` (or `--config` / `$QSL_CONFIG`). It is created on first run; every key is optional, and v0.2 config files keep working. See [`config.example.toml`](config.example.toml) for all keys with comments. The most important ones:
 
 ```toml
-# =============================================================================
-# QSL Agent Configuration (2026 Edition)
-# Developed by Quantum Secular Labs (https://quantumseclabs.com/)
-# Autonomous, 100% Local & Sovereign Intelligence Engine
-# =============================================================================
-
-# AI Inference Engine ("ollama", "lmstudio", or "custom")
-provider = "ollama"
-
-# Engine Endpoints
-ollama_url = "http://127.0.0.1:11434"
-lmstudio_url = "http://127.0.0.1:1234/v1"
-custom_url = ""
-
-# Active Model (leave blank to auto-detect at startup)
-model = ""
-
-# Obsidian Vault Cortex (leave empty to auto-detect from local system)
-obsidian_vault_path = ""
-
-# Model Generation Parameters
-temperature = 0.2
-max_tokens = 4096
-context_size = 16384
-
-# Runtime & Security Settings
-auto_approve_commands = false    # Set to true for unattended autonomous execution
-max_react_steps = 35            # Adaptive reasoning iterations per turn
-command_timeout_secs = 30       # Shell command execution timeout limit
+provider = "ollama"            # ollama | lmstudio | custom
+model = ""                     # empty = auto-detect
+context_size = 16384           # num_ctx, clamped to the model's maximum
+max_tokens = 4096              # reply budget (capped at 1/4 of the context)
+approval_mode = "ask"          # ask | always | strict | yolo
+max_react_steps = 35
+command_timeout_secs = 60
+allowed_roots = []             # confine file tools, e.g. ["~/projects"]
+allow_web = true
+stream = true
+show_reasoning = true
 ```
+
+Environment overrides: `QSL_PROVIDER`, `QSL_MODEL`, `QSL_ENDPOINT`, `QSL_API_KEY`, `QSL_APPROVAL`, `QSL_CONFIG`, `OBSIDIAN_VAULT`, `NO_COLOR`. An invalid config is backed up to `config.toml.bak` and replaced with defaults, with a warning showing the parse error.
 
 ---
 
-## Troubleshooting & Diagnostics
+## Building & Testing
 
-### 1. `Connection refused to local AI engine`
-- Verify your local server is running:
-  - For Ollama: `systemctl --user status ollama` or run `ollama serve`
-  - For LM Studio: Open LM Studio and toggle **Start Server** on port 1234.
-- Test endpoint health directly:
-  ```bash
-  curl http://127.0.0.1:11434/api/tags
-  ```
+```bash
+./build-test/all.sh        # release build + fmt + clippy + tests + smoke tests
+./build-test/build.sh      # optimised, stripped binary -> build-test/bin/qsl-agent
+./build-test/test.sh       # cargo fmt --check, clippy -D warnings, unit + e2e tests
+./build-test/smoke.sh      # built binary vs. a mock LLM, incl. interactive PTY suite
+./build-test/live.sh       # optional: a real task against your local model
+```
 
-### 2. `Execution blocked by SecurityGuard`
-- SecurityGuard intercepted a command matching dangerous patterns (`rm -rf`, `find -delete`, writing to `/boot`, reading `/etc/shadow`).
-- Review the blocked command in the terminal error frame. Use safer alternatives (e.g. `rm <single_file>` or read specific paths).
+The test suites never touch your real config, vault or sessions; each run uses a throwaway `HOME`. The mock LLM (`cargo run --example mock_llm`) speaks both the OpenAI SSE and Ollama NDJSON protocols. See [build-test/README.md](build-test/README.md).
 
-### 3. Step Limit Reached
-- If the agent reaches its step limit on an extensive task, use the `[c]` key in the interactive prompt to grant +15 additional steps, or increase `max_react_steps` in `~/.config/qsl-agent/config.toml`.
+Requirements: Rust 1.89+, plus `curl` and `python3` for the smoke tests. The `target/` directory is only a build cache; the resulting binary is self-contained.
 
-### 4. Configuration Regeneration
-- If `config.toml` contains syntax errors, QSL Agent automatically backs it up to `config.toml.bak` and regenerates a clean default configuration.
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|:--|:--|
+| `cannot reach local AI engine` | Start the engine (`ollama serve`, LM Studio → Start Server) and run `qsl-agent --health-check` |
+| `no model configured and none detected` | `ollama pull qwen2.5-coder:7b`, or `/model <name>` |
+| Model ignores tools / prints JSON | Handled automatically (text protocol fallback). Prefer tool-capable models such as Qwen 2.5/3 Coder or Llama 3.1+ |
+| Answers forget earlier context | Raise `context_size` (the engine must have the VRAM); check the `ctx` value in the status line |
+| `[SECURITY BLOCKED]` | The command matched a hard-deny rule; run it yourself if you really mean it |
+| `DENIED ... non-interactive mode` | Risky commands need a human; run interactively, or use `--yolo` in a sandbox |
+| Slow first token | Large prompt processing on small GPUs; the stable system prompt lets the engine cache it after the first step |
+| Step limit reached | `[c]` adds 15 steps; or raise `max_react_steps` / `--max-steps` |
+| Need details | `qsl-agent --verbose`, then read `~/.local/state/qsl-agent/qsl-agent.log` |
 
 ---
 
@@ -576,15 +409,15 @@ command_timeout_secs = 30       # Shell command execution timeout limit
 
 **[Quantum Secular Labs](https://quantumseclabs.com/)** (QuantumSec Labs) is a specialized cybersecurity and technology engineering firm focused on digital infrastructure defense, enterprise vulnerability assessment and penetration testing (VAPT), offensive security auditing, and applied Artificial Intelligence research.
 
-QSL engineered **QSL Agent** to directly eliminate the security vulnerabilities, secret leakage, and compliance hazards inherent in cloud-tethered AI tools. By uniting defensive cybersecurity principles with native Rust systems engineering, QSL Agent provides developers, security auditors, and enterprises with an autonomous, 100% sovereign local intelligence engine purpose-built for zero-trust environments.
+QSL engineered **QSL Agent** to directly eliminate the security vulnerabilities, secret leakage, and compliance hazards inherent in cloud-tethered AI tools. By uniting defensive cybersecurity principles with native Rust systems engineering, QSL Agent provides developers, security auditors, and enterprises with an autonomous, sovereign local intelligence engine purpose-built for zero-trust environments.
 
 ---
 
-## License & Intellectual Property
+## License
 
 QSL Agent is released under the **[QSL Team Source-Available License v1.0 (2026)](LICENSE)** by **[Quantum Secular Labs](https://quantumseclabs.com/)**.
 
-- **Open Source / Source-Available**: You have the complete right to view, inspect, audit, compile, and run the software locally on your own hardware for personal, academic, or internal operational use.
+- **Source-Available**: You may view, inspect, audit, compile, and run the software locally on your own hardware for personal, academic, or internal operational use.
 - **Strictly Non-Redistributable**: You may **NOT** redistribute, resell, mirror, syndicate, sub-license, fork publicly, or distribute pre-compiled binaries or packages to any third party without explicit prior written authorization from Quantum Secular Labs.
 - **Commercial & Cloud Exclusivity**: Providing QSL Agent as a hosted service (SaaS/PaaS/API wrapper) or commercial redistribution is reserved exclusively to **[Quantum Secular Labs](https://quantumseclabs.com/)**.
 - **All Rights Reserved**: All copyrights, patents, and distribution rights remain solely with Quantum Secular Labs.

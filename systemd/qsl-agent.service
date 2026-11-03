@@ -1,27 +1,34 @@
+# QSL Agent HTTP API as a systemd *user* service.
+#   install -Dm644 systemd/qsl-agent.service ~/.config/systemd/user/qsl-agent.service
+#   systemctl --user edit qsl-agent    # set QSL_API_TOKEN, adjust the vault path below
+#   systemctl --user enable --now qsl-agent
+#
+# Requests run non-interactively: risky shell commands are denied unless
+# approval_mode = "yolo" (only do that inside a disposable sandbox).
+
 [Unit]
-Description=QSL Agent (local autonomous agent)
-After=network-online.target
+Description=QSL Agent (local autonomous agent HTTP API)
+After=network-online.target ollama.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.cargo/bin/qsl-agent
+ExecStart=/usr/local/bin/qsl-agent --serve 127.0.0.1:8765
 Environment=QSL_CONFIG=%h/.config/qsl-agent/config.toml
 Environment=RUST_LOG=qsl_agent=info,warn
-Environment=QSL_TRANSPORT=http
+# Environment=QSL_API_TOKEN=change-me
 Restart=on-failure
 RestartSec=2
 StartLimitIntervalSec=300
 StartLimitBurst=10
-StandardOutput=journal
-StandardError=journal
 
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.local/state/qsl-agent
-ReadWritePaths=%h/qsl
+ReadWritePaths=%h/.local/state/qsl-agent %h/.config/qsl-agent
+# The Obsidian vault must be writable for memory, daily logs and skills:
+ReadWritePaths=%h/Documents/Obsidian_Vault
 
 [Install]
 WantedBy=default.target

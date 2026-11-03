@@ -1,0 +1,49 @@
+# =============================================================================
+# QSL Agent Configuration (v0.5) — copy to ~/.config/qsl-agent/config.toml
+# Every key is optional; missing keys use the defaults shown here.
+# v0.2 config files keep working unchanged.
+# =============================================================================
+
+# Inference engine: "ollama", "lmstudio" or "custom" (any OpenAI-compatible server)
+provider = "ollama"
+ollama_url = "http://127.0.0.1:11434"
+lmstudio_url = "http://127.0.0.1:1234/v1"
+# custom_url = "http://127.0.0.1:8080/v1"      # llama.cpp, vLLM, LocalAI, OpenRouter, ...
+# api_key = ""                                 # or env QSL_API_KEY (remote endpoints only)
+
+# Wire protocol: "auto" (Ollama native API for ollama, OpenAI elsewhere), "openai", "ollama"
+api = "auto"
+
+# Model ("" = auto-detect the first chat model on the engine)
+model = ""
+
+# Obsidian vault ("" = auto-detect; falls back to ~/Documents/Obsidian_Vault)
+obsidian_vault_path = ""
+
+# Generation
+temperature = 0.2
+max_tokens = 4096          # reply budget (capped at 1/4 of the context window)
+context_size = 16384       # num_ctx; clamped to the model's maximum when Ollama reports it
+stream = true              # live token streaming
+show_reasoning = true      # show <think>/reasoning output (/think on|off)
+
+# Agent loop
+max_react_steps = 35
+compaction_threshold = 0.75   # summarise older turns at this fill level
+parallel_tools = true         # run independent read-only tool calls concurrently
+project_context = true        # load AGENTS.md / QSL.md / .qsl/instructions.md from the cwd
+
+# Safety: "ask" | "always" | "strict" | "yolo"   (see README: Permission Model)
+approval_mode = "ask"
+command_timeout_secs = 60
+max_tool_output_chars = 12000
+allow_web = true              # web_fetch tool (plain HTTP GET; inference stays local)
+allowed_roots = []            # e.g. ["~/projects", "/tmp"] to confine file tools
+
+# Networking
+request_timeout_secs = 600    # max wait between streamed chunks (large models are slow)
+max_retries = 3
+
+# Persistence
+save_sessions = true
+# state_dir = "~/.local/state/qsl-agent"     # sessions, checkpoints, logs, REPL history
