@@ -1,0 +1,27 @@
+[Unit]
+Description=QSL Agent (local autonomous agent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/qsl-agent
+Environment=QSL_CONFIG=%h/.config/qsl-agent/config.toml
+Environment=RUST_LOG=qsl_agent=info,warn
+Environment=QSL_TRANSPORT=http
+Restart=on-failure
+RestartSec=2
+StartLimitIntervalSec=300
+StartLimitBurst=10
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/qsl-agent
+ReadWritePaths=%h/qsl
+
+[Install]
+WantedBy=default.target
