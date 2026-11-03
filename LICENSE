@@ -1,0 +1,81 @@
+QSL TEAM SOURCE-AVAILABLE LICENSE v1.0 (2026)
+Copyright (c) 2026 Quantum Secular Labs (QSL Team) (https://quantumseclabs.com/).
+All Rights Reserved.
+
+===============================================================================
+1. DEFINITIONS
+===============================================================================
+
+"Software" refers to the QSL Agent source code, documentation, binaries,
+build configurations, procedural skills, and related digital artifacts
+authored or maintained by Quantum Secular Labs (QSL Team).
+
+"You" or "User" means an individual or legal entity exercising permissions
+granted under this License.
+
+"QSL Team" means Quantum Secular Labs (https://quantumseclabs.com/),
+the original authors, core maintainers, and legal rights holders of the Software.
+
+===============================================================================
+2. GRANT OF RIGHTS (OPEN SOURCE / SOURCE-AVAILABLE)
+===============================================================================
+
+Subject to the terms and restrictions of this License, the QSL Team hereby
+grants You a worldwide, royalty-free, non-exclusive, non-transferable license
+to:
+
+  a) Access, view, inspect, audit, and study the complete source code of the
+     Software.
+  b) Compile, build, and execute the Software locally on your own personal
+     or internal enterprise computing hardware.
+  c) Modify and customize the Software exclusively for your personal, research,
+     or internal operational use.
+  d) Submit improvements, patches, or bug fixes directly to the upstream
+     QSL Team repositories for consideration.
+
+===============================================================================
+3. STRICT RESTRICTIONS (NO REDISTRIBUTION)
+===============================================================================
+
+You may NOT:
+
+  a) REDISTRIBUTE: Sublicense, sell, resell, lease, rent, mirror, syndicate,
+     republish, or distribute copies of the Software (or any compiled binaries,
+     installers, packages, or containers thereof) to any third party, whether
+     for free, for commercial gain, or as part of another distribution.
+  b) DERIVATIVE DISTRIBUTION: Distribute, publish, or release any modified
+     versions, forks, or derivative works based on this Software to any third
+     party without the explicit prior written authorization of the QSL Team.
+  c) AS-A-SERVICE PROHIBITION: Provide the functionality of the Software as
+     a hosted service, Software-as-a-Service (SaaS), Platform-as-a-Service (PaaS),
+     Application Service Provider (ASP), or API wrapper to third parties without
+     a separate commercial distribution agreement with the QSL Team.
+  d) TRADEMARK & BRANDING: Use the name "QSL", "QSL Agent", "QSL Team", or
+     any associated logos in any manner that implies endorsement or affiliation
+     without prior written consent.
+  e) NOTICE PRESERVATION: Remove, alter, or obscure any copyright notices,
+     license headers, attribution text, or disclaimers present in the Software.
+
+===============================================================================
+4. RESERVATION OF RIGHTS
+===============================================================================
+
+All intellectual property rights, titles, ownership, copyrights, patents,
+and redistribution rights in and to the Software are and shall remain
+exclusively vested in the QSL Team. No implied licenses are granted.
+
+For commercial redistribution inquiries, enterprise licensing, or dual-license
+options, contact the QSL Team directly.
+
+===============================================================================
+5. DISCLAIMER OF WARRANTIES & LIMITATION OF LIABILITY
+===============================================================================
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NONINFRINGEMENT.
+
+IN NO EVENT SHALL THE QSL TEAM OR ITS CONTRIBUTORS BE LIABLE FOR ANY CLAIM,
+DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR
+OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
