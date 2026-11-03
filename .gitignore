@@ -10,3 +10,7 @@
 # Temporary files
 *~
 *.swp
+
+# build-test artefacts
+/build-test/bin/
+/build-test/out/

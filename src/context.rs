@@ -1,168 +1,245 @@
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use crate::config::Tier;
-use crate::error::{AgentError, Result};
-use crate::provider::{ChatMessage, Provider, Role};
-use crate::memory::Memory;
+//! Context-window management: token estimates, history repair, and choosing
+//! where to compact without breaking tool-call / tool-result pairing.
 
-pub struct ContextManager {
-    budget: usize,
-    threshold: f32,
-    raw_turns: usize,
-    summary: Option<String>,
-    tier: Tier,
+use crate::provider::{Message, Role};
+use crate::util::smart_clip;
+
+pub fn estimate(history: &[Message]) -> usize {
+    history.iter().map(Message::estimated_tokens).sum()
 }
 
-impl ContextManager {
-    pub fn new(tier: Tier) -> Self {
-        Self {
-            budget: tier.context_budget(),
-            threshold: tier.compaction_threshold(),
-            raw_turns: tier.raw_turns_kept(),
-            summary: None,
-            tier,
-        }
-    }
-
-    pub fn tokens(messages: &[ChatMessage]) -> usize {
-        messages.iter().map(|m| m.token_count() as usize).sum()
-    }
-
-    pub fn utilization(&self, messages: &[ChatMessage]) -> f32 {
-        Self::tokens(messages) as f32 / self.budget as f32
-    }
-
-    pub fn needs_compaction(&self, messages: &[ChatMessage]) -> bool {
-        self.utilization(messages) >= self.threshold
-    }
-
-    pub fn assert_well_formed(&self, messages: &[ChatMessage]) -> Result<()> {
-        let mut open_calls = std::collections::HashSet::new();
-        for m in messages {
-            if let Some(tcs) = &m.tool_calls {
-                for tc in tcs { open_calls.insert(tc.id.clone()); }
+/// Repair history so every assistant tool call has exactly one result and no
+/// result is orphaned. Needed after interrupts, crashes and compaction;
+/// OpenAI-compatible servers reject unmatched pairs outright.
+pub fn sanitize(history: &mut Vec<Message>) {
+    let mut out: Vec<Message> = Vec::with_capacity(history.len());
+    let mut i = 0;
+    while i < history.len() {
+        let m = &history[i];
+        match m.role {
+            Role::Assistant if !m.tool_calls.is_empty() => {
+                let calls = m.tool_calls.clone();
+                out.push(m.clone());
+                i += 1;
+                let mut results: Vec<Message> = Vec::new();
+                while i < history.len() && history[i].role == Role::Tool {
+                    results.push(history[i].clone());
+                    i += 1;
+                }
+                for tc in &calls {
+                    match results
+                        .iter()
+                        .position(|r| r.tool_call_id.as_deref() == Some(tc.id.as_str()))
+                    {
+                        Some(pos) => out.push(results.remove(pos)),
+                        None => out.push(Message::tool(
+                            &tc.id,
+                            &tc.name,
+                            "[no result: the call was interrupted before it ran]",
+                        )),
+                    }
+                }
             }
-            if let Some(id) = &m.tool_call_id { open_calls.remove(id); }
-        }
-        if !open_calls.is_empty() {
-            return Err(AgentError::ContextOverflow {
-                used: Self::tokens(messages),
-                limit: self.budget,
-            });
-        }
-        Ok(())
-    }
-
-    pub fn assert_fits(&self, messages: &[ChatMessage]) -> Result<()> {
-        let used = Self::tokens(messages);
-        if used > self.budget {
-            return Err(AgentError::ContextOverflow { used, limit: self.budget });
-        }
-        Ok(())
-    }
-
-    pub async fn compact(
-        &mut self,
-        messages: &mut Vec<ChatMessage>,
-        memory: &Memory,
-        provider: &Provider,
-    ) -> Result<()> {
-        if messages.len() <= self.raw_turns { return Ok(()); }
-
-        let split_at = messages.len().saturating_sub(self.raw_turns);
-        let split_at = adjust_to_turn_boundary(messages, split_at);
-
-        let to_summarize: Vec<ChatMessage> = messages.drain(..split_at).collect();
-        let text = to_summarize.iter()
-            .map(|m| format!("[{:?}] {}", m.role, m.content))
-            .collect::<Vec<_>>().join("\n");
-
-        let new_summary = match summarize_with_model(&text, provider, self.tier).await {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!(?e, "summarizer failed; falling back to truncation");
-                truncate_chars(&text, 2_000)
+            Role::Tool => {
+                // Orphan result (its assistant call is gone) — drop it.
+                i += 1;
             }
-        };
-        self.summary = Some(format!(
-            "{}\n---\n{}",
-            self.summary.as_deref().unwrap_or(""),
-            new_summary,
-        ));
-
-        messages.insert(0, ChatMessage::system(format!(
-            "[Rolling summary of earlier turns]\n{}",
-            self.summary.as_deref().unwrap()
-        )));
-
-        memory.append_compaction_event(messages.len(), Self::tokens(messages)).await?;
-        Ok(())
-    }
-}
-
-async fn summarize_with_model(text: &str, provider: &Provider, tier: Tier) -> Result<String> {
-    let max_chars = match tier {
-        Tier::Small  => 4_000,
-        Tier::Medium => 8_000,
-        Tier::Large  => 16_000,
-    };
-    let prompt = format!(
-        "Summarize the following conversation excerpt in <= {max_chars} chars. \
-         Preserve: user intent, decisions, tool outcomes, open questions. \
-         Drop: politeness, redundancy, raw tool output details.\n\n---\n{text}"
-    );
-    let req = crate::provider::ChatRequest {
-        messages: vec![
-            ChatMessage::system("You are a conversation summarizer. Be terse and factual."),
-            ChatMessage::user(prompt),
-        ],
-        tools: vec![],
-        temperature: 0.1,
-        stream: false,
-    };
-    let (msg, _, _, _) = provider.chat(req).await?;
-    Ok(truncate_chars(&msg.content, max_chars))
-}
-
-fn truncate_chars(s: &str, n: usize) -> String {
-    if s.chars().count() <= n { s.to_string() }
-    else { s.chars().take(n).collect::<String>() + "…" }
-}
-
-fn adjust_to_turn_boundary(messages: &[ChatMessage], mut idx: usize) -> usize {
-    while idx > 0 {
-        let m = &messages[idx];
-        if m.tool_calls.is_none() && m.tool_call_id.is_none()
-            && matches!(m.role, Role::User | Role::Assistant)
-        {
-            return idx;
-        }
-        idx -= 1;
-    }
-    0
-}
-
-pub fn dedup_tool_results(messages: &mut [ChatMessage]) -> usize {
-    let mut seen: HashMap<u64, usize> = HashMap::new();
-    let mut replaced = 0;
-    for i in 0..messages.len() {
-        if messages[i].tool_call_id.is_some() && messages[i].content.len() > 400 {
-            let h = hash_str(&messages[i].content);
-            if let Some(&prev) = seen.get(&h) {
-                let orig_len = messages[i].content.len();
-                messages[i].content = format!(
-                    "[duplicate of tool result at msg #{prev} — {orig_len} bytes elided]");
-                replaced += 1;
-            } else {
-                seen.insert(h, i);
+            Role::Assistant if m.content.trim().is_empty() => {
+                i += 1;
+            }
+            _ => {
+                out.push(m.clone());
+                i += 1;
             }
         }
     }
-    replaced
+    *history = out;
 }
 
-fn hash_str(s: &str) -> u64 {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
+/// Pick the index where the preserved tail starts. Everything in
+/// `1..split` gets summarised. Returns `None` when nothing can be compacted.
+pub fn compaction_split(history: &[Message], keep_tail_tokens: usize) -> Option<usize> {
+    if history.len() < 3 {
+        return None;
+    }
+    let mut tail_tokens = 0usize;
+    let mut best: Option<usize> = None;
+    for i in (2..history.len()).rev() {
+        tail_tokens += history[i].estimated_tokens();
+        let boundary = history[i].role != Role::Tool;
+        if boundary && history.len() - i >= 2 {
+            if tail_tokens > keep_tail_tokens && best.is_some() {
+                break;
+            }
+            best = Some(i);
+            if tail_tokens > keep_tail_tokens {
+                break;
+            }
+        }
+    }
+    best.filter(|&s| s > 1)
+}
+
+/// Render messages as compact text for the summariser.
+pub fn transcript_for_summary(messages: &[Message]) -> String {
+    let mut s = String::new();
+    for m in messages {
+        match m.role {
+            Role::User => s.push_str(&format!(
+                "[user]\n{}\n\n",
+                smart_clip(m.content.trim(), 4000)
+            )),
+            Role::Assistant => {
+                if !m.content.trim().is_empty() {
+                    s.push_str(&format!(
+                        "[assistant]\n{}\n\n",
+                        smart_clip(m.content.trim(), 3000)
+                    ));
+                }
+                for tc in &m.tool_calls {
+                    s.push_str(&format!(
+                        "[assistant called {}] {}\n\n",
+                        tc.name,
+                        smart_clip(&tc.arguments, 600)
+                    ));
+                }
+            }
+            Role::Tool => s.push_str(&format!(
+                "[result of {}]\n{}\n\n",
+                m.name.clone().unwrap_or_default(),
+                smart_clip(m.content.trim(), 1500)
+            )),
+            Role::System => s.push_str(&format!(
+                "[system note]\n{}\n\n",
+                smart_clip(m.content.trim(), 1000)
+            )),
+        }
+    }
+    s
+}
+
+/// Last-resort shrink when summarisation is impossible: clip large tool
+/// outputs everywhere except the most recent `protect` messages.
+pub fn clip_tool_outputs(history: &mut [Message], max_chars: usize, protect: usize) -> usize {
+    let n = history.len();
+    let mut saved = 0;
+    for m in history.iter_mut().take(n.saturating_sub(protect)) {
+        if m.role == Role::Tool && m.content.len() > max_chars {
+            let before = m.content.len();
+            m.content = smart_clip(&m.content, max_chars);
+            saved += before.saturating_sub(m.content.len());
+        }
+    }
+    saved
+}
+
+pub const SUMMARY_PROMPT: &str = "You are compressing the earlier part of a conversation between a user and an autonomous \
+coding/ops agent so the agent can continue the task with a smaller context.\n\
+Write a dense summary in Markdown bullet points (max ~450 words) covering:\n\
+- The user's goals and explicit requirements/preferences\n\
+- Decisions made and their reasons\n\
+- Files read, created or modified (exact paths) and what changed\n\
+- Commands run and their important results (errors, test outcomes, versions)\n\
+- Problems hit and how they were resolved\n\
+- Current state of the work and the concrete next steps\n\
+Keep exact identifiers (paths, function names, URLs, numbers). Do not invent anything. Output only the summary.";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::ToolCall;
+
+    fn call(id: &str) -> Message {
+        let mut m = Message::assistant("");
+        m.tool_calls = vec![ToolCall {
+            id: id.into(),
+            name: "read_file".into(),
+            arguments: "{}".into(),
+        }];
+        m
+    }
+
+    #[test]
+    fn sanitize_fills_missing_and_drops_orphans() {
+        let mut h = vec![
+            Message::system("s"),
+            Message::user("u"),
+            Message::tool("ghost", "x", "orphan"),
+            call("a"),
+            Message::user("next"),
+            Message::assistant(""),
+        ];
+        sanitize(&mut h);
+        let roles: Vec<Role> = h.iter().map(|m| m.role).collect();
+        assert_eq!(
+            roles,
+            vec![
+                Role::System,
+                Role::User,
+                Role::Assistant,
+                Role::Tool,
+                Role::User
+            ]
+        );
+        assert!(h[3].content.contains("interrupted"));
+        assert_eq!(h[3].tool_call_id.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn sanitize_reorders_results_to_match_calls() {
+        let mut a = Message::assistant("");
+        a.tool_calls = vec![
+            ToolCall {
+                id: "1".into(),
+                name: "x".into(),
+                arguments: "{}".into(),
+            },
+            ToolCall {
+                id: "2".into(),
+                name: "y".into(),
+                arguments: "{}".into(),
+            },
+        ];
+        let mut h = vec![
+            Message::system("s"),
+            Message::user("u"),
+            a,
+            Message::tool("2", "y", "B"),
+            Message::tool("1", "x", "A"),
+        ];
+        sanitize(&mut h);
+        assert_eq!(h[3].content, "A");
+        assert_eq!(h[4].content, "B");
+    }
+
+    #[test]
+    fn split_never_starts_on_tool_result() {
+        let mut h = vec![Message::system("s"), Message::user("x".repeat(4000))];
+        for i in 0..10 {
+            h.push(call(&i.to_string()));
+            h.push(Message::tool(&i.to_string(), "read_file", "y".repeat(2000)));
+        }
+        h.push(Message::assistant("done"));
+        let split = compaction_split(&h, 1500).unwrap();
+        assert!(split > 1);
+        assert_ne!(h[split].role, Role::Tool);
+        assert!(h.len() - split >= 2);
+    }
+
+    #[test]
+    fn nothing_to_compact_for_short_history() {
+        let h = vec![Message::system("s"), Message::user("u")];
+        assert!(compaction_split(&h, 10).is_none());
+    }
+
+    #[test]
+    fn clip_outputs_protects_recent() {
+        let mut h = vec![
+            Message::tool("1", "x", "z".repeat(10_000)),
+            Message::tool("2", "x", "z".repeat(10_000)),
+        ];
+        let saved = clip_tool_outputs(&mut h, 1000, 1);
+        assert!(saved > 8000);
+        assert_eq!(h[1].content.len(), 10_000);
+    }
 }
