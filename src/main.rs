@@ -1,162 +1,119 @@
+use anyhow::Result;
+use mimalloc::MiMalloc;
+use std::sync::Arc;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tokio_util::sync::CancellationToken;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 mod agent;
-mod approval;
-mod cli;
 mod config;
+mod context;
+mod cost;
+mod error;
+mod events;
+mod health;
 mod memory;
+mod metrics;
 mod provider;
-mod skills;
+mod security;
+mod session;
+mod session_registry;
 mod tools;
-mod ui;
+mod transport;
+mod turn_budget;
 
-use agent::QslAgent;
-use clap::Parser;
-use config::Config;
-use std::path::PathBuf;
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> Result<()> {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("qsl_agent=info,warn"));
 
-/// QSL Agent — Ultra-lightweight autonomous AI agent (2026)
-/// 100% local inference with Ollama, LM Studio, or GGUF models.
-/// Persistent memory via Obsidian vault. Zero cloud. Zero accounts.
-#[derive(Parser, Debug)]
-#[command(
-    name = "qsl-agent",
-    about = "QSL Agent — Ultra-lightweight, rapid Rust autonomous AI agent for local Ollama, LM Studio, GGUF, and Obsidian memory (2026)",
-    version = env!("CARGO_PKG_VERSION"),
-    author = "Quantum Secular Labs <https://quantumseclabs.com/>"
-)]
-struct Args {
-    /// Non-interactive task prompt to execute immediately
-    #[arg(short = 'P', long)]
-    prompt: Option<String>,
+    let cfg = config::Config::load()?;
+    let log_dir = cfg.state_dir.join("logs");
+    std::fs::create_dir_all(&log_dir)?;
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "qsl-agent.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    /// Model name (e.g. huihui-qwen35-9b-256k:latest, qwen2.5-coder)
-    #[arg(short, long)]
-    model: Option<String>,
+    let registry = tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer().json())
+        .with(fmt::layer().json().with_writer(non_blocking));
 
-    /// Provider: ollama, lmstudio, or custom
-    #[arg(short, long)]
-    provider: Option<String>,
+    registry.init();
 
-    /// Custom endpoint URL (e.g. http://127.0.0.1:11434, http://127.0.0.1:1234/v1)
-    #[arg(short, long)]
-    endpoint: Option<String>,
+    let _prom = metrics_exporter_prometheus::PrometheusBuilder::new()
+        .with_http_listener(([127, 0, 0, 1], 9999))
+        .install_recorder()?;
+    metrics::init();
+    tracing::info!("config loaded; metrics on :9999");
 
-    /// Path to Obsidian Vault (defaults to auto-detected local vault or ~/Documents/Obsidian_Vault)
-    #[arg(short, long)]
-    vault: Option<PathBuf>,
-
-    /// Approval mode: ask, always, strict
-    #[arg(short = 'a', long)]
-    approval: Option<String>,
-
-    /// Generation temperature (0.0 to 1.0)
-    #[arg(short, long)]
-    temperature: Option<f32>,
-
-    /// Context window size for local model (tokens)
-    #[arg(short = 'c', long)]
-    context_size: Option<u32>,
-
-    /// List detected local models and exit
-    #[arg(long)]
-    list_models: bool,
-
-    /// Show current configuration and exit
-    #[arg(long)]
-    show_config: bool,
-
-    /// Run health check on local AI provider and exit
-    #[arg(long)]
-    health_check: bool,
-}
-
-#[tokio::main]
-async fn main() {
-    let args = Args::parse();
-    let mut config = Config::load();
-
-    // Apply CLI overrides
-    if let Some(m) = args.model {
-        config.model = m;
-    }
-    if let Some(p) = args.provider {
-        config.provider = p;
-    }
-    if let Some(ep) = args.endpoint {
-        config.custom_url = Some(ep);
-        config.provider = "custom".to_string();
-    }
-    if let Some(v) = args.vault {
-        config.obsidian_vault_path = v;
-    }
-    if let Some(t) = args.temperature {
-        config.temperature = t.clamp(0.0, 2.0);
-    }
-    if let Some(ctx) = args.context_size {
-        config.context_size = ctx;
-    }
-    if let Some(appr) = args.approval {
-        match appr.to_lowercase().as_str() {
-            "always" => config.auto_approve_commands = true,
-            "ask" | "strict" => config.auto_approve_commands = false,
-            _ => {
-                eprintln!("Unknown approval mode '{}'. Use: ask, always, strict", appr);
-                std::process::exit(1);
+    let shutdown = CancellationToken::new();
+    {
+        let token = shutdown.clone();
+        tokio::spawn(async move {
+            // ⚠️ VERIFY: SignalKind is unix-only; guard for Windows if you target it.
+            let mut sigint = tokio::signal::unix::signal(
+                tokio::signal::unix::SignalKind::interrupt()).unwrap();
+            let mut sigterm = tokio::signal::unix::signal(
+                tokio::signal::unix::SignalKind::terminate()).unwrap();
+            tokio::select! {
+                _ = sigint.recv()  => tracing::info!("SIGINT"),
+                _ = sigterm.recv() => tracing::info!("SIGTERM"),
             }
-        }
+            token.cancel();
+        });
     }
 
-    let mut agent = QslAgent::new(config);
-
-    // Auto-detect running local models if model field is empty or default
-    if let Some(detected) = agent.client.auto_detect_model().await {
-        if agent.config.model.is_empty() {
-            println!("  Auto-detected model: {}", detected);
-            agent.config.model = detected;
-        }
-    }
-
-    // Handle one-shot flag commands
-    if args.list_models {
-        match agent.client.list_models().await {
-            Ok(models) => {
-                if models.is_empty() {
-                    println!("No models found on current provider endpoint.");
-                } else {
-                    println!("Detected local models:");
-                    for m in &models {
-                        if *m == agent.config.model {
-                            println!("  ● {} (active)", m);
-                        } else {
-                            println!("  ○ {}", m);
-                        }
-                    }
+    // SIGHUP: config hot-reload attempt (logs new config, partial adoption)
+    {
+        tokio::spawn(async move {
+            use tokio::signal::unix::{signal, SignalKind};
+            let Ok(mut hup) = signal(SignalKind::hangup()) else { return };
+            while hup.recv().await.is_some() {
+                match config::Config::load() {
+                    Ok(c) => tracing::info!(model = %c.provider.model, "SIGHUP: reloaded config"),
+                    Err(e) => tracing::warn!(?e, "SIGHUP reload failed; keeping old config"),
                 }
             }
-            Err(e) => eprintln!("Error querying models: {}", e),
-        }
-        return;
+        });
     }
 
-    if args.show_config {
-        let serialized = toml::to_string_pretty(&agent.config).unwrap_or_default();
-        println!("{}", serialized);
-        return;
+    let provider = Arc::new(provider::Provider::new(&cfg)?);
+    if let Err(e) = provider.probe().await {
+        tracing::warn!(?e, "startup provider probe failed — continuing");
     }
 
-    if args.health_check {
-        cli::run_health_check(&agent).await;
-        return;
-    }
+    let security = Arc::new(security::SecurityGuard::new(&cfg)?);
+    let memory   = Arc::new(memory::Memory::new(&cfg).await?);
+    let events   = events::EventLog::open(&cfg.state_dir).await?;
+    let cost     = Arc::new(cost::CostTracker::new(
+        cfg.cost.input_usd_per_million,
+        cfg.cost.output_usd_per_million,
+    ));
+    let registry = Arc::new(session_registry::SessionRegistry::new(&cfg.state_dir));
 
-    if let Some(prompt_text) = args.prompt {
-        match agent.run_turn(&prompt_text, false).await {
-            Ok(ans) => ui::UI::render_final_response(&ans),
-            Err(err) => {
-                eprintln!("Error: {}", err);
-                std::process::exit(1);
-            }
-        }
-    } else {
-        cli::run_repl(agent).await;
-    }
+    let health_handle = health::HealthMonitor::spawn(cfg.health.clone(), shutdown.clone());
+    let session = session::Session::open_or_create(&cfg, events.clone(), memory.clone()).await?;
+    tracing::info!(id = %session.id, "session ready");
+
+    let tools = tools::default_registry(&security, &cfg)?;
+    let (agent, handle) = agent::Agent::new(
+        provider, tools, session, memory.clone(), security, events,
+        cfg.agent.clone(), health_handle, cost, cfg.provider.tier,
+    );
+
+    let transport = match std::env::var("QSL_TRANSPORT").as_deref() {
+        Ok("http") => transport::Transport::Http("127.0.0.1:8765".parse().unwrap()),
+        Ok("unix") => transport::Transport::Unix(cfg.state_dir.join("qsl.sock")),
+        _ => transport::Transport::Stdio,
+    };
+
+    let agent_task = tokio::spawn(agent.run(shutdown.clone()));
+    transport::serve(transport, handle, registry, shutdown.clone()).await?;
+    let _ = agent_task.await;
+
+    memory.flush().await?;
+    tracing::info!("clean shutdown");
+    Ok(())
 }
