@@ -1,757 +1,410 @@
-use crate::approval::{ApprovalManager, ApprovalMode};
-use crate::config::Config;
-use crate::memory::ObsidianMemory;
-use crate::provider::{ChatMessage, FunctionCall, LocalLlmClient, ToolCall};
-use crate::skills::SkillManager;
-use crate::tools::ToolRegistry;
-use crate::ui::UI;
-use chrono::Local;
-use colored::*;
-use regex::Regex;
-use serde_json::Value;
-use std::io::{self, IsTerminal, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::time::{sleep, Duration, Instant};
+use std::time::Duration;
+use futures::stream::{FuturesUnordered, StreamExt};
+use serde::Serialize;
+use tokio::sync::{mpsc, oneshot, Semaphore};
+use tokio_util::sync::CancellationToken;
+use tracing::{info, instrument};
 
-/// The core autonomous agent orchestrator implementing an adaptive ReAct (Reason+Act) loop
-pub struct QslAgent {
-    pub config: Config,
-    pub memory: ObsidianMemory,
-    pub skills: SkillManager,
-    pub client: LocalLlmClient,
-    pub approval: ApprovalManager,
-    pub history: Vec<ChatMessage>,
+use crate::config::AgentConfig;
+use crate::context::ContextManager;
+use crate::cost::CostTracker;
+use crate::error::{AgentError, Result};
+use crate::events::{Event, EventLog, ToolCallRec};
+use crate::health::HealthMonitor;
+use crate::memory::Memory;
+use crate::provider::{ChatMessage, ChatRequest, Provider, StreamEvent, ToolCall};
+use crate::security::SecurityGuard;
+use crate::session::{ExportFormat, Session};
+use crate::tools::{smart_clip, ToolContext, ToolOutcome, ToolRegistry};
+use crate::turn_budget::TurnBudget;
+
+pub enum AgentRequest {
+    Chat { text: String, reply: oneshot::Sender<Result<String>> },
+    Health { reply: oneshot::Sender<HealthSnapshot> },
+    Stats { reply: oneshot::Sender<SessionStats> },
+    Retry { reply: oneshot::Sender<Result<String>> },
+    Undo { turns: usize, reply: oneshot::Sender<Result<()>> },
+    Compact { reply: oneshot::Sender<Result<()>> },
+    Export { format: ExportFormat, reply: oneshot::Sender<Result<String>> },
 }
 
-impl QslAgent {
-    pub fn new(config: Config) -> Self {
-        let memory = ObsidianMemory::new(&config.obsidian_vault_path);
-        let skills = SkillManager::new(&config.obsidian_vault_path);
-        let endpoint = config.get_active_endpoint();
-        let client = LocalLlmClient::new(&endpoint, &config.provider);
-        let mode = if config.auto_approve_commands {
-            ApprovalMode::Always
-        } else {
-            ApprovalMode::Ask
-        };
-        let approval = ApprovalManager::new(mode);
+#[derive(Clone, Serialize)]
+pub struct HealthSnapshot {
+    pub session_id: String,
+    pub idle_seconds: u64,
+    pub steps: u64,
+    pub stalled: bool,
+    pub context_pct: f32,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cost_usd: f64,
+}
 
-        Self {
-            config,
-            memory,
-            skills,
-            client,
-            approval,
-            history: Vec::new(),
-        }
+#[derive(Clone, Serialize)]
+pub struct SessionStats {
+    pub session_id: String,
+    pub turn_idx: u64,
+    pub message_count: usize,
+    pub context_tokens: usize,
+    pub context_pct: f32,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cost_usd: f64,
+    pub tools_available: Vec<&'static str>,
+    pub snapshots_available: usize,
+}
+
+#[derive(Clone)]
+pub struct AgentHandle {
+    tx: mpsc::Sender<AgentRequest>,
+    health: HealthMonitor,
+}
+
+impl AgentHandle {
+    pub async fn chat(&self, text: String) -> Result<String> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(AgentRequest::Chat { text, reply: tx }).await
+            .map_err(|_| AgentError::Cancelled)?;
+        rx.await.map_err(|_| AgentError::Cancelled)?
     }
-
-    /// Build the comprehensive system prompt with context injection
-    pub fn build_system_prompt(&self) -> String {
-        let mem_context = self.memory.load_profile_and_memories();
-        let current_time = Local::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
-        let current_dir = std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| ".".to_string());
-
-        let tools = ToolRegistry::get_definitions();
-        let mut tool_desc = String::new();
-        for t in &tools {
-            tool_desc.push_str(&format!(
-                "- `{}`: {}\n",
-                t.function.name, t.function.description,
-            ));
-        }
-
-        let skills_summary = self.skills.list_skills_summary();
-
-        format!(
-            "You are QSL Agent — an ultra-lightweight, rapid autonomous AI agent built in Rust (v0.2.0, 2026).\n\
-             You run 100% locally with zero cloud dependencies, zero external accounts, and complete privacy.\n\
-             Your persistent memory and skills are stored directly inside an Obsidian vault.\n\n\
-             ### System & Environment Context:\n\
-             - Current Date/Time: {}\n\
-             - Working Directory: {}\n\
-             - Obsidian Vault: {}\n\
-             - Local AI Provider: {} (Model: {})\n\
-             - Approval Mode: {}\n\n\
-             {}\
-             ### Available Skills (use `skill_read` to load detailed procedures):\n\
-             {}\n\n\
-             ### Available Tools:\n\
-             {}\n\n\
-             ### Core Operating Rules:\n\
-             1. Be direct, concise, and actionable. Avoid unnecessary preamble.\n\
-             2. Use tools to gather real information — never fabricate file contents, command output, or data.\n\
-             3. If you learn important facts or user preferences, persist them with `obsidian_append`.\n\
-             4. For specialized domains, load the relevant skill with `skill_read` first.\n\
-             5. Security Guard actively blocks destructive commands. Do not attempt to bypass it.\n\
-             6. Tool efficiency: execute tasks in the fewest, most direct tool calls. For file creation, verify content formatting and word count in memory before calling `write_file`, avoiding redundant verification commands (like `wc -w`) unless explicitly requested.\n\
-             7. When executing multi-step tasks, reason through each step before acting.\n\
-             8. After completing a task, give a concise summary of what was done.\n\
-             9. Large File Generation: Local inference engines enforce a strict max token limit per tool call (4096 tokens). Never attempt to emit massive monolithic files (>200 lines) in a single JSON argument, as output will be abruptly truncated by the engine's JSON parser. Instead, create modular architectures, scaffold files with clear structures, or construct code in focused modules.\n",
-            current_time,
-            current_dir,
-            self.memory.vault_path.display(),
-            self.config.provider,
-            self.config.model,
-            self.approval.mode,
-            mem_context,
-            skills_summary,
-            tool_desc
-        )
+    pub async fn health(&self) -> Result<HealthSnapshot> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(AgentRequest::Health { reply: tx }).await
+            .map_err(|_| AgentError::Cancelled)?;
+        Ok(rx.await.map_err(|_| AgentError::Cancelled)?)
     }
-
-    /// Extract tool calls from text content (fallback for models without native tool calling)
-    pub fn extract_text_tool_calls(&self, content: &str) -> Vec<ToolCall> {
-        let mut calls = Vec::new();
-        let re = Regex::new(r"(?s)<tool_call>(.*?)</tool_call>").unwrap();
-
-        for (idx, cap) in re.captures_iter(content).enumerate() {
-            let json_str = cap[1].trim();
-            if let Ok(val) = serde_json::from_str::<Value>(json_str) {
-                if let Some(name) = val.get("name").and_then(|n| n.as_str()) {
-                    let args = val
-                        .get("arguments")
-                        .map(|a| {
-                            if a.is_string() {
-                                a.as_str().unwrap().to_string()
-                            } else {
-                                a.to_string()
-                            }
-                        })
-                        .unwrap_or_else(|| "{}".to_string());
-
-                    calls.push(ToolCall {
-                        id: format!("call_text_{}", idx),
-                        tool_type: "function".to_string(),
-                        function: FunctionCall {
-                            name: name.to_string(),
-                            arguments: args,
-                        },
-                    });
-                }
-            }
-        }
-        calls
+    pub async fn stats(&self) -> Result<SessionStats> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(AgentRequest::Stats { reply: tx }).await
+            .map_err(|_| AgentError::Cancelled)?;
+        Ok(rx.await.map_err(|_| AgentError::Cancelled)?)
     }
+    pub fn health_monitor(&self) -> &HealthMonitor { &self.health }
+}
 
-    /// Parse and extract reasoning thought blocks (e.g. <think>...</think>) and clean response text
-    pub fn extract_thought_and_response(text: &str) -> (Option<String>, String) {
-        if text.contains("<think>") && text.contains("</think>") {
-            let re = Regex::new(r"(?s)<think>(.*?)</think>").unwrap();
-            let mut thoughts = Vec::new();
-            for cap in re.captures_iter(text) {
-                thoughts.push(cap[1].trim().to_string());
-            }
-            let cleaned = re.replace_all(text, "").trim().to_string();
-            let combined_thought = thoughts.join("\n\n");
-            let opt_thought = if combined_thought.is_empty() {
-                None
-            } else {
-                Some(combined_thought)
-            };
-            (opt_thought, cleaned)
-        } else if text.contains("</think>") {
-            let parts: Vec<&str> = text.split("</think>").collect();
-            let thought = parts[..parts.len() - 1].join("\n").replace("<think>", "").trim().to_string();
-            let cleaned = parts.last().unwrap_or(&"").trim().to_string();
-            let opt_thought = if thought.is_empty() { None } else { Some(thought) };
-            (opt_thought, cleaned)
-        } else if text.starts_with("<think>") {
-            let thought = text.replace("<think>", "").trim().to_string();
-            (Some(thought), String::new())
-        } else {
-            (None, text.trim().to_string())
-        }
-    }
-
-    /// Backward-compatible clean model output
+pub struct Agent {
+    provider: Arc<Provider>,
+    tools: ToolRegistry,
+    session: Session,
+    memory: Arc<Memory>,
     #[allow(dead_code)]
-    pub fn clean_model_output(text: &str) -> String {
-        Self::extract_thought_and_response(text).1
+    security: Arc<SecurityGuard>,
+    events: Arc<EventLog>,
+    cfg: AgentConfig,
+    ctx: ContextManager,
+    health: HealthMonitor,
+    tool_ctx: ToolContext,
+    cost: Arc<CostTracker>,
+    rx: mpsc::Receiver<AgentRequest>,
+    tool_semaphore: Arc<Semaphore>,
+}
+
+impl Agent {
+    pub fn new(
+        provider: Arc<Provider>,
+        tools: ToolRegistry,
+        session: Session,
+        memory: Arc<Memory>,
+        security: Arc<SecurityGuard>,
+        events: Arc<EventLog>,
+        cfg: AgentConfig,
+        health: HealthMonitor,
+        cost: Arc<CostTracker>,
+        tier: crate::config::Tier,
+    ) -> (Self, AgentHandle) {
+        let (tx, rx) = mpsc::channel(64);
+        let ctx = ContextManager::new(tier);
+        let tool_ctx = ToolContext::new(
+            security.clone(),
+            cfg.max_concurrent_tools * 16 * 1024,
+            cfg.tool_timeout_s,
+        );
+        let tool_semaphore = Arc::new(Semaphore::new(cfg.max_concurrent_tools));
+        let handle = AgentHandle { tx, health: health.clone() };
+        let agent = Self {
+            provider, tools, session, memory, security, events, cfg,
+            ctx, health, tool_ctx, cost, rx, tool_semaphore,
+        };
+        (agent, handle)
     }
 
-    /// Run a single autonomous turn: send user input, handle tool calls in an adaptive ReAct loop
-    pub async fn run_turn(
-        &mut self,
-        user_input: &str,
-        is_interactive: bool,
-    ) -> Result<String, String> {
-        // Initialize system prompt on first message
-        if self.history.is_empty() {
-            let sys_prompt = self.build_system_prompt();
-            self.history.push(ChatMessage {
-                role: "system".to_string(),
-                content: Some(sys_prompt),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            });
-        }
-
-        // Add user message
-        self.history.push(ChatMessage {
-            role: "user".to_string(),
-            content: Some(user_input.to_string()),
-            tool_calls: None,
-            tool_call_id: None,
-            name: None,
-        });
-
-        let tool_defs = ToolRegistry::get_definitions();
-        let mut max_steps = self.config.max_react_steps as usize;
-        let timeout_secs = self.config.command_timeout_secs;
-        let mut step = 0;
-        let mut nudge_count = 0;
-        let mut executed_signatures: Vec<String> = Vec::new();
+    pub async fn run(mut self, shutdown: CancellationToken) -> Result<()> {
+        use tokio::io::{AsyncBufReadExt, BufReader, stdin};
+        let mut stdin = BufReader::new(stdin()).lines();
 
         loop {
-            step += 1;
-
-            // Prevent context window overflow in long sessions
-            self.auto_compact_history(self.config.context_size);
-
-            // Approaching limit directive: inject warning when 3 steps remain
-            if step == max_steps.saturating_sub(3) && step > 3 {
-                self.history.push(ChatMessage {
-                    role: "system".to_string(),
-                    content: Some(format!(
-                        "[SYSTEM DIRECTIVE] Approaching step budget limit (step {} of {}). Conclude remaining tool operations immediately and synthesize your final comprehensive response.",
-                        step, max_steps
-                    )),
-                    tool_calls: None,
-                    tool_call_id: None,
-                    name: None,
-                });
-            }
-
-            // Adaptive step budget resolution when limit is exceeded
-            if step > max_steps {
-                if is_interactive {
-                    println!();
-                    println!("{}", "╭── [STEP LIMIT REACHED] ───────────────────────────────────────────╮".bold().yellow());
-                    println!(
-                        "│  Agent reached step budget limit ({}/{} steps).                   │",
-                        step - 1,
-                        max_steps
-                    );
-                    println!("├───────────────────────────────────────────────────────────────────┤");
-                    println!(
-                        "│  {} Extend (+15 steps)  │  {} Force synthesis  │  {} Stop turn    │",
-                        "[c]".cyan().bold(),
-                        "[f]".green().bold(),
-                        "[s]".red().bold()
-                    );
-                    println!("{}", "╰───────────────────────────────────────────────────────────────────╯".bold().yellow());
-                    print!("{}", "  action [c/f/s] > ".bold());
-                    let _ = io::stdout().flush();
-
-                    let mut choice = String::new();
-                    let _ = io::stdin().read_line(&mut choice);
-                    match choice.trim().to_lowercase().as_str() {
-                        "c" | "continue" | "" => {
-                            max_steps += 15;
-                            println!(
-                                "  {} Extended step budget by +15 (new limit: {} steps).",
-                                "[OK]".green(),
-                                max_steps
-                            );
-                        }
-                        "f" | "finalize" | "synthesize" => {
-                            println!("  {} Requesting final synthesis without tools...", "[WAIT]".yellow());
-                            self.history.push(ChatMessage {
-                                role: "user".to_string(),
-                                content: Some(
-                                    "Conclude all operations now. Synthesize all gathered data and provide your comprehensive final response. Do not invoke any further tools.".to_string(),
-                                ),
-                                tool_calls: None,
-                                tool_call_id: None,
-                                name: None,
-                            });
-
-                            let final_chat = self
-                                .client
-                                .chat(
-                                    &self.config.model,
-                                    &self.history,
-                                    None,
-                                    self.config.temperature,
-                                    self.config.max_tokens,
-                                    self.config.context_size,
-                                )
-                                .await?;
-
-                            let raw_text = final_chat.content.unwrap_or_default();
-                            let (thought, clean_text) = Self::extract_thought_and_response(&raw_text);
-                            if let Some(th) = thought {
-                                UI::render_reasoning(&th);
-                            }
-
-                            let final_text = if clean_text.is_empty() {
-                                "Task concluded.".to_string()
-                            } else {
-                                clean_text
-                            };
-
-                            self.history.push(ChatMessage {
-                                role: "assistant".to_string(),
-                                content: Some(final_text.clone()),
-                                tool_calls: None,
-                                tool_call_id: None,
-                                name: None,
-                            });
-
-                            let log_entry = format!("**User:** {}\n\n**Agent:**\n{}", user_input, final_text);
-                            let _ = self.memory.append_daily_log(&log_entry);
-                            return Ok(final_text);
-                        }
-                        _ => {
-                            return Ok("Turn execution halted by user at step limit.".to_string());
-                        }
-                    }
-                } else {
-                    // Non-interactive mode: auto-extend once up to 50 steps
-                    if max_steps < 50 {
-                        max_steps += 15;
-                        println!("  [Step budget dynamically auto-extended to {} steps]", max_steps);
-                    } else {
-                        // Beyond 50 steps: force final synthesis without crashing
-                        println!("  [Maximum step budget reached; synthesizing final response]");
-                        self.history.push(ChatMessage {
-                            role: "user".to_string(),
-                            content: Some(
-                                "Step budget reached. Synthesize all findings and collected information into your comprehensive final answer now. Do not call any tools.".to_string(),
-                            ),
-                            tool_calls: None,
-                            tool_call_id: None,
-                            name: None,
-                        });
-
-                        let final_chat = self
-                            .client
-                            .chat(
-                                &self.config.model,
-                                &self.history,
-                                None,
-                                self.config.temperature,
-                                self.config.max_tokens,
-                                self.config.context_size,
-                            )
-                            .await?;
-
-                        let raw_text = final_chat.content.unwrap_or_default();
-                        let (thought, clean_text) = Self::extract_thought_and_response(&raw_text);
-                        if let Some(th) = thought {
-                            UI::render_reasoning(&th);
-                        }
-
-                        let final_text = if clean_text.is_empty() {
-                            "Task concluded after reaching maximum step budget.".to_string()
-                        } else {
-                            clean_text
-                        };
-
-                        self.history.push(ChatMessage {
-                            role: "assistant".to_string(),
-                            content: Some(final_text.clone()),
-                            tool_calls: None,
-                            tool_call_id: None,
-                            name: None,
-                        });
-
-                        let log_entry = format!("**User:** {}\n\n**Agent:**\n{}", user_input, final_text);
-                        let _ = self.memory.append_daily_log(&log_entry);
-                        return Ok(final_text);
+            tokio::select! {
+                _ = shutdown.cancelled() => { info!("shutdown"); break; }
+                Some(req) = self.rx.recv() => self.handle_request(req).await,
+                line = stdin.next_line() => {
+                    let Some(line) = line? else { break };
+                    let line = line.trim();
+                    if line.is_empty() { continue; }
+                    if line == "/quit" { break; }
+                    match self.handle_line(line).await {
+                        Ok(reply) => if !reply.is_empty() { println!("{reply}"); },
+                        Err(e) => eprintln!("error: {e}"),
                     }
                 }
             }
+        }
+        self.memory.flush().await.ok();
+        Ok(())
+    }
 
-            let step_label = match step {
-                1 => "Analyzing prompt & cognitive planning...",
-                2 => "Processing tool results & determining next action...",
-                3 => "Executing follow-up operation...",
-                _ => "Synthesizing output & evaluating completion...",
+    async fn handle_request(&mut self, req: AgentRequest) {
+        match req {
+            AgentRequest::Chat { text, reply } => {
+                let r = self.handle_line(&text).await;
+                let _ = reply.send(r);
+            }
+            AgentRequest::Health { reply } => { let _ = reply.send(self.snapshot_health().await); }
+            AgentRequest::Stats { reply } => { let _ = reply.send(self.snapshot_stats().await); }
+            AgentRequest::Retry { reply } => {
+                let r = self.do_retry().await;
+                let _ = reply.send(r);
+            }
+            AgentRequest::Undo { turns, reply } => {
+                let r = self.session.undo(turns).await;
+                let _ = reply.send(r);
+            }
+            AgentRequest::Compact { reply } => {
+                let r = self.ctx.compact(
+                    self.session.history_mut(), &self.memory, &self.provider).await;
+                let _ = reply.send(r);
+            }
+            AgentRequest::Export { format, reply } => {
+                let r = self.session.export(format).await;
+                let _ = reply.send(r);
+            }
+        }
+    }
+
+    async fn handle_line(&mut self, line: &str) -> Result<String> {
+        if let Some(cmd) = line.strip_prefix('/') {
+            let parts: Vec<&str> = cmd.split_whitespace().collect();
+            match parts.first().copied() {
+                Some("health") => {
+                    let h = self.snapshot_health().await;
+                    return Ok(format!(
+                        "idle={}s steps={} ctx={:.1}% cost=${:.4}",
+                        h.idle_seconds, h.steps, h.context_pct, h.cost_usd));
+                }
+                Some("stats") => {
+                    let st = self.snapshot_stats().await;
+                    return Ok(serde_json::to_string_pretty(&st).unwrap_or_default());
+                }
+                Some("compact") => {
+                    self.ctx.compact(self.session.history_mut(), &self.memory, &self.provider).await?;
+                    return Ok("compacted".into());
+                }
+                Some("retry") => return self.do_retry().await,
+                Some("undo") => {
+                    let n = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(1usize);
+                    self.session.undo(n).await?;
+                    return Ok(format!("undid {n} turn(s)"));
+                }
+                Some("export") => {
+                    let fmt = match parts.get(1).copied() {
+                        Some("md") | Some("markdown") => ExportFormat::Markdown,
+                        _ => ExportFormat::Json,
+                    };
+                    return self.session.export(fmt).await;
+                }
+                Some("save") => {
+                    let path = parts.get(1).copied().unwrap_or("session.json");
+                    let body = self.session.export(ExportFormat::Json).await?;
+                    tokio::fs::write(path, body).await?;
+                    return Ok(format!("saved to {path}"));
+                }
+                Some(other) => return Ok(format!("unknown command: /{other}")),
+                None => return Ok("empty command".into()),
+            }
+        }
+        self.handle_turn(line.to_string()).await
+    }
+
+    async fn do_retry(&mut self) -> Result<String> {
+        let Some(user) = self.session.last_user.clone() else {
+            return Ok("nothing to retry".into());
+        };
+        let _ = self.session.snapshots.pop();
+        self.session.history.pop();
+        self.handle_turn(user).await
+    }
+
+    #[instrument(skip(self), fields(session.id = %self.session.id, turn.idx = self.session.turn_idx))]
+    async fn handle_turn(&mut self, user_text: String) -> Result<String> {
+        let trace_id = uuid::Uuid::new_v4().to_string();
+        let budget = TurnBudget::new(Duration::from_secs(self.cfg.max_turn_seconds));
+        self.session.append_user(user_text).await?;
+        self.health.beat();
+
+        let mut final_text = String::new();
+        let turn_start = std::time::Instant::now();
+
+        for step in 0..self.cfg.max_steps_per_turn {
+            if budget.expired() {
+                return Err(AgentError::TurnDeadline { seconds: self.cfg.max_turn_seconds });
+            }
+            if self.ctx.needs_compaction(self.session.history()) {
+                self.ctx.compact(self.session.history_mut(), &self.memory, &self.provider).await?;
+                self.events.append(Event::Compaction {
+                    kept_msgs: self.session.history().len(),
+                    tokens: ContextManager::tokens(self.session.history()),
+                    at: chrono::Utc::now(),
+                }).await?;
+            }
+            self.ctx.assert_well_formed(self.session.history())?;
+            self.ctx.assert_fits(self.session.history())?;
+
+            let util = self.ctx.utilization(self.session.history());
+            metrics::gauge!("qsl_context_utilization_pct").set(util as f64 * 100.0);
+            self.events.append(Event::Heartbeat {
+                step, ctx_pct: util * 100.0, at: chrono::Utc::now(),
+            }).await?;
+
+            let req = ChatRequest {
+                messages: self.session.history().to_vec(),
+                tools: self.tools.schemas(),
+                temperature: self.cfg.temperature,
+                stream: true,
             };
 
-            let start_time = Instant::now();
-            let is_term = io::stdout().is_terminal();
+            let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
+            let provider = self.provider.clone();
+            let producer = tokio::spawn(async move { provider.chat_stream(req, tx).await });
 
-            // Dynamic live ticker while waiting for local inference
-            let done = Arc::new(AtomicBool::new(false));
-            let done_clone = done.clone();
-            let ticker_step = step;
-            let ticker_max = max_steps;
-            let ticker_label = step_label;
+            let mut assistant_text = String::new();
+            let mut tool_calls: Vec<ToolCall> = Vec::new();
+            let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
+            let mut results: Vec<(ToolCall, ToolOutcome)> = Vec::new();
+            let sem = self.tool_semaphore.clone();
 
-            let ticker_handle = tokio::spawn(async move {
-                if !is_term {
-                    return;
-                }
-                let frames = ["|", "/", "-", "\\"];
-                let mut idx = 0;
-                while !done_clone.load(Ordering::Relaxed) {
-                    let elapsed = start_time.elapsed().as_secs();
-                    let frame = frames[idx % frames.len()];
-                    print!(
-                        "\r  [Step {}/{}] {} ({}s) {}  ",
-                        ticker_step, ticker_max, ticker_label, elapsed, frame
-                    );
-                    let _ = io::stdout().flush();
-                    sleep(Duration::from_millis(200)).await;
-                    idx += 1;
-                }
-            });
-
-            if !is_term {
-                println!("  [Step {}/{}] {}", step, max_steps, step_label);
-            }
-
-            let chat_result = self
-                .client
-                .chat(
-                    &self.config.model,
-                    &self.history,
-                    Some(&tool_defs),
-                    self.config.temperature,
-                    self.config.max_tokens,
-                    self.config.context_size,
-                )
-                .await;
-
-            done.store(true, Ordering::Relaxed);
-            let _ = ticker_handle.await;
-
-            if is_term {
-                let duration_secs = start_time.elapsed().as_secs_f32();
-                print!("\r\x1b[2K"); // erase ticker line cleanly
-                println!(
-                    "{}",
-                    format!("  [Step {}/{}] Inference completed in {:.1}s", step, max_steps, duration_secs).dimmed()
-                );
-                let _ = io::stdout().flush();
-            }
-
-            let response_msg = match chat_result {
-                Ok(msg) => msg,
-                Err(err) if err.contains("unexpected end of JSON input") || err.contains("invalid tool call arguments") => {
-                    UI::render_tool_error(
-                        "engine_truncation",
-                        "Tool argument generation exceeded local engine token limit (truncated JSON). Engaging self-healing recovery...",
-                    );
-
-                    self.auto_compact_history(self.config.context_size / 2);
-
-                    self.history.push(ChatMessage {
-                        role: "user".to_string(),
-                        content: Some(
-                            "The previous tool call exceeded the local token limit and was truncated by the local inference engine (unexpected end of JSON input). Please deliver your response in focused modular sections or provide a modular architectural scaffold rather than a massive single-shot block. Do not call write_file with more than 200 lines at once.".to_string(),
-                        ),
-                        tool_calls: None,
-                        tool_call_id: None,
-                        name: None,
-                    });
-
-                    // Recover by requesting clean text completion without tools
-                    let retry_result = self
-                        .client
-                        .chat(
-                            &self.config.model,
-                            &self.history,
-                            None,
-                            self.config.temperature,
-                            self.config.max_tokens,
-                            self.config.context_size,
-                        )
-                        .await;
-
-                    match retry_result {
-                        Ok(msg) => msg,
-                        Err(retry_err) => {
-                            return Err(format!(
-                                "Local AI model error [HTTP 500]: {}. Self-healing recovery attempt also failed: {}",
-                                err, retry_err
-                            ));
+            loop {
+                tokio::select! {
+                    Some(ev) = rx.recv() => match ev {
+                        StreamEvent::Text(t) => { assistant_text.push_str(&t); }
+                        StreamEvent::ToolCall(tc) => {
+                            let tool = self.tools.get(&tc.name);
+                            let tctx = self.tool_ctx.clone_for();
+                            let tc_clone = tc.clone();
+                            let sem = sem.clone();
+                            tool_calls.push(tc.clone());
+                            in_flight.push(async move {
+                                let _permit = sem.acquire_owned().await.ok();
+                                let out = match tool {
+                                    Some(t) => {
+                                        if let Err(e) = t.validate(&tc_clone.arguments) {
+                                            Err(e)
+                                        } else {
+                                            let r = t.execute(tc_clone.arguments.clone(), &tctx).await;
+                                            r.map(|mut o| {
+                                                o.output = smart_clip(&o.output, tctx.max_output);
+                                                o
+                                            })
+                                        }
+                                    }
+                                    None => Err(AgentError::ToolFailed {
+                                        tool: tc_clone.name.clone(),
+                                        reason: "unknown tool".into(),
+                                    }),
+                                };
+                                (tc_clone, out)
+                            });
                         }
-                    }
-                }
-                Err(err) => return Err(err),
-            };
-
-            // Extract thought blocks (e.g. <think>...</think>) and render them
-            if let Some(content) = &response_msg.content {
-                let (thought, _) = Self::extract_thought_and_response(content);
-                if let Some(th) = thought {
-                    UI::render_reasoning(&th);
-                }
-            }
-
-            // Check for tool calls (native or text-based fallback)
-            let mut tool_calls = response_msg.tool_calls.clone().unwrap_or_default();
-            if tool_calls.is_empty() {
-                if let Some(content) = &response_msg.content {
-                    tool_calls = self.extract_text_tool_calls(content);
-                }
-            }
-
-            // No tool calls → final text response
-            if tool_calls.is_empty() {
-                let raw_text = response_msg.content.unwrap_or_default();
-                let (_, clean_text) = Self::extract_thought_and_response(&raw_text);
-
-                // If response is empty after tool calls, nudge the model (max 2 attempts)
-                if clean_text.is_empty() && step > 1 && nudge_count < 2 {
-                    nudge_count += 1;
-                    self.history.push(ChatMessage {
-                        role: "user".to_string(),
-                        content: Some(
-                            "Please provide a concise answer or summary based on the results above."
-                                .to_string(),
-                        ),
-                        tool_calls: None,
-                        tool_call_id: None,
-                        name: None,
-                    });
-                    continue;
-                }
-
-                let final_text = if clean_text.is_empty() {
-                    "Task completed.".to_string()
-                } else {
-                    clean_text
-                };
-
-                self.history.push(ChatMessage {
-                    role: "assistant".to_string(),
-                    content: Some(final_text.clone()),
-                    tool_calls: None,
-                    tool_call_id: None,
-                    name: None,
-                });
-
-                // Log to daily journal
-                let log_entry = format!("**User:** {}\n\n**Agent:**\n{}", user_input, final_text);
-                let _ = self.memory.append_daily_log(&log_entry);
-
-                return Ok(final_text);
-            }
-
-            // Loop repetition detector: prevent models from spinning on the exact same tool calls
-            for call in &tool_calls {
-                let sig = format!("{}:{}", call.function.name, call.function.arguments.trim());
-                let repetition_count = executed_signatures.iter().rev().take(3).filter(|s| *s == &sig).count();
-                if repetition_count >= 1 {
-                    self.history.push(ChatMessage {
-                        role: "system".to_string(),
-                        content: Some(format!(
-                            "[SYSTEM DIRECTIVE] Repeated tool action detected for '{}'. You have already executed this action with identical parameters. Do NOT repeat it. Conclude this task or transition to the next distinct action now.",
-                            call.function.name
-                        )),
-                        tool_calls: None,
-                        tool_call_id: None,
-                        name: None,
-                    });
-                }
-                executed_signatures.push(sig);
-            }
-
-            // Add assistant message with tool calls
-            self.history.push(ChatMessage {
-                role: "assistant".to_string(),
-                content: response_msg.content.clone(),
-                tool_calls: Some(tool_calls.clone()),
-                tool_call_id: None,
-                name: None,
-            });
-
-            // Working indication before executing tools
-            println!(
-                "  {} Executing {} autonomous tool action(s)...",
-                "[ACTION]".bold().cyan(),
-                tool_calls.len()
-            );
-
-            // Execute each tool call
-            for call in tool_calls {
-                UI::render_tool_call(&call.function.name, &call.function.arguments);
-
-                // Permission gate
-                let approval_result = self.approval.check_approval(
-                    &call.function.name,
-                    &call.function.arguments,
-                    is_interactive,
-                );
-
-                let output_str = match approval_result {
-                    Ok(()) => {
-                        let result = ToolRegistry::execute(
-                            &call.function.name,
-                            &call.function.arguments,
-                            &self.memory,
-                            &mut self.skills,
-                            timeout_secs,
-                        )
-                        .await;
-
-                        match result {
-                            Ok(out) => {
-                                UI::render_tool_result(&call.function.name, &out);
-                                out
-                            }
-                            Err(err) => {
-                                UI::render_tool_error(&call.function.name, &err);
-                                format!("ERROR: {}", err)
-                            }
+                        StreamEvent::Done { usage_in, usage_out } => {
+                            self.cost.record(usage_in, usage_out);
                         }
+                    },
+                    Some((tc, out)) = in_flight.next() => {
+                        let outcome = out.unwrap_or_else(|e| ToolOutcome {
+                            output: format!("error: {e}"), ok: false });
+                        crate::metrics::tool_executed(&tc.name, outcome.ok, 0.0);
+                        results.push((tc, outcome));
                     }
-                    Err(permission_err) => {
-                        UI::render_tool_error(&call.function.name, &permission_err);
-                        format!("DENIED: {}", permission_err)
-                    }
-                };
+                    else => break,
+                }
+            }
+            producer.await.map_err(|e| AgentError::ToolFailed {
+                tool: "provider".into(), reason: e.to_string() })??;
+            while let Some((tc, out)) = in_flight.next().await {
+                let outcome = out.unwrap_or_else(|e| ToolOutcome {
+                    output: format!("error: {e}"), ok: false });
+                crate::metrics::tool_executed(&tc.name, outcome.ok, 0.0);
+                results.push((tc, outcome));
+            }
 
-                self.history.push(ChatMessage {
-                    role: "tool".to_string(),
-                    content: Some(output_str),
+            let tcrec: Vec<ToolCallRec> = tool_calls.iter().map(|tc| ToolCallRec {
+                id: tc.id.clone(), name: tc.name.clone(), args: tc.arguments.clone(),
+            }).collect();
+            self.session.append_assistant(assistant_text.clone(), tcrec).await?;
+
+            for (tc, out) in &results {
+                self.events.append(Event::ToolCall {
+                    id: tc.id.clone(), name: tc.name.clone(),
+                    args: tc.arguments.clone(), at: chrono::Utc::now(),
+                }).await?;
+                self.events.append(Event::ToolResult {
+                    id: tc.id.clone(), ok: out.ok, output: out.output.clone(),
+                    at: chrono::Utc::now(),
+                }).await?;
+                self.session.history_mut().push(ChatMessage {
+                    role: crate::provider::Role::Tool,
+                    content: out.output.clone(),
                     tool_calls: None,
-                    tool_call_id: Some(call.id),
-                    name: Some(call.function.name),
+                    tool_call_id: Some(tc.id.clone()),
+                    tokens: Default::default(),
                 });
             }
+
+            crate::context::dedup_tool_results(self.session.history_mut());
+
+            final_text = assistant_text.clone();
+            self.session.checkpoint(&format!("step {step} trace {trace_id}")).await?;
+            self.health.beat();
+
+            if tool_calls.is_empty() { break; }
+        }
+
+        self.session.turn_idx += 1;
+        self.session.maybe_rotate().await?;
+        let (tin, tout) = self.cost.totals();
+        crate::metrics::turn_completed(
+            self.session.turn_idx,
+            turn_start.elapsed().as_secs_f64() * 1000.0,
+            tin as u32, tout as u32);
+        Ok(final_text)
+    }
+
+    async fn snapshot_health(&self) -> HealthSnapshot {
+        let (tin, tout) = self.cost.totals();
+        HealthSnapshot {
+            session_id: self.session.id.clone(),
+            idle_seconds: self.health.idle_seconds(),
+            steps: self.health.steps(),
+            stalled: self.health.is_stalled(),
+            context_pct: self.ctx.utilization(self.session.history()) * 100.0,
+            tokens_in: tin,
+            tokens_out: tout,
+            cost_usd: self.cost.estimated_usd(),
         }
     }
 
-    /// Clear conversation history (keeps system prompt on next turn)
-    pub fn reset_context(&mut self) {
-        self.history.clear();
-    }
-
-    /// Automatically compact conversation history to prevent context window overflow in long sessions
-    pub fn auto_compact_history(&mut self, context_limit: u32) {
-        let total_chars: usize = self
-            .history
-            .iter()
-            .map(|m| m.content.as_deref().unwrap_or("").len())
-            .sum();
-        let estimated_tokens = (total_chars / 4) as u32;
-
-        // If history exceeds 60% of context limit or has more than 20 messages, prune intermediate tool exchanges
-        if (estimated_tokens > (context_limit * 6 / 10) || self.history.len() > 20) && self.history.len() > 6 {
-            let sys_msg = self.history.first().cloned();
-            let user_msg = self.history.get(1).cloned();
-
-            let keep_count = 6;
-            let start = self.history.len().saturating_sub(keep_count);
-            let recent_slice = self.history[start..].to_vec();
-
-            let mut compacted = Vec::with_capacity(keep_count + 3);
-            if let Some(sys) = sys_msg {
-                compacted.push(sys);
-            }
-            if let Some(u) = user_msg {
-                compacted.push(u);
-            }
-            compacted.push(ChatMessage {
-                role: "system".to_string(),
-                content: Some(
-                    "[Context Compaction: Earlier intermediate tool execution history summarized to preserve context headroom for local inference.]"
-                        .to_string(),
-                ),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            });
-            compacted.extend(recent_slice);
-            self.history = compacted;
+    async fn snapshot_stats(&self) -> SessionStats {
+        let (tin, tout) = self.cost.totals();
+        SessionStats {
+            session_id: self.session.id.clone(),
+            turn_idx: self.session.turn_idx,
+            message_count: self.session.history().len(),
+            context_tokens: ContextManager::tokens(self.session.history()),
+            context_pct: self.ctx.utilization(self.session.history()) * 100.0,
+            tokens_in: tin,
+            tokens_out: tout,
+            cost_usd: self.cost.estimated_usd(),
+            tools_available: self.tools.names(),
+            snapshots_available: self.session.snapshots.depth(),
         }
-    }
-
-    /// Trim history to keep context size manageable
-    #[allow(dead_code)]
-    pub fn trim_history(&mut self, max_messages: usize) {
-        if self.history.len() > max_messages {
-            let system_msg = self.history.first().cloned();
-            let keep_count = max_messages - 1;
-            let start = self.history.len() - keep_count;
-            let mut trimmed = Vec::with_capacity(max_messages);
-            if let Some(sys) = system_msg {
-                trimmed.push(sys);
-            }
-            trimmed.extend_from_slice(&self.history[start..]);
-            self.history = trimmed;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_thought_and_response_with_tags() {
-        let input = "<think>\nAnalyzing the user's codebase structure.\nFound 5 files.\n</think>\nHere is the summary of your project.";
-        let (thought, clean) = QslAgent::extract_thought_and_response(input);
-        assert!(thought.is_some());
-        assert_eq!(
-            thought.unwrap(),
-            "Analyzing the user's codebase structure.\nFound 5 files."
-        );
-        assert_eq!(clean, "Here is the summary of your project.");
-    }
-
-    #[test]
-    fn test_extract_thought_and_response_no_tags() {
-        let input = "Direct response without any reasoning block.";
-        let (thought, clean) = QslAgent::extract_thought_and_response(input);
-        assert!(thought.is_none());
-        assert_eq!(clean, "Direct response without any reasoning block.");
-    }
-
-    #[test]
-    fn test_extract_thought_unclosed_tag() {
-        let input = "<think>\nThinking in progress...";
-        let (thought, clean) = QslAgent::extract_thought_and_response(input);
-        assert!(thought.is_some());
-        assert_eq!(clean, "");
-    }
-
-    #[test]
-    fn test_auto_compact_history() {
-        let mut config = Config::default();
-        config.context_size = 4096;
-        let mut agent = QslAgent::new(config);
-
-        agent.history.push(ChatMessage {
-            role: "system".to_string(),
-            content: Some("System prompt".to_string()),
-            tool_calls: None,
-            tool_call_id: None,
-            name: None,
-        });
-        agent.history.push(ChatMessage {
-            role: "user".to_string(),
-            content: Some("Initial user prompt".to_string()),
-            tool_calls: None,
-            tool_call_id: None,
-            name: None,
-        });
-
-        for i in 0..25 {
-            agent.history.push(ChatMessage {
-                role: if i % 2 == 0 { "assistant".to_string() } else { "tool".to_string() },
-                content: Some(format!("Step output content {}", i)),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            });
-        }
-
-        assert_eq!(agent.history.len(), 27);
-        agent.auto_compact_history(4096);
-        assert!(agent.history.len() < 12);
-        assert_eq!(agent.history[0].role, "system");
-        assert_eq!(agent.history[1].role, "user");
-        assert!(agent.history[2].content.as_ref().unwrap().contains("Context Compaction"));
     }
 }
