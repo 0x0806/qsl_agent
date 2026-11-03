@@ -1,4 +1,4 @@
-# QSL Agent 
+# QSL Agent (2026 Edition)
 
 <div align="center">
 
@@ -13,9 +13,10 @@
 **Autonomous, rapid local intelligence agent engine built natively in Rust.**  
 *100% Local Inference | Zero Cloud Accounts | Obsidian PKM Long-Term Memory | Sandboxed Execution Engine*
 
-Developed by **[Quantum Secular Labs](https://quantumseclabs.com/)**
+Developed by **[Quantum Secular Labs](https://quantumseclabs.com/)**  
+Repository: **[github.com/0x0806/qsl_agent](https://github.com/0x0806/qsl_agent)**
 
-[Features](#key-features) • [Architecture](#architecture--2026-agent-standards) • [Releases](#releases--installation) • [Skills (18 Seeded)](#extensible-skills-catalog-18-seeded-skills) • [Security & Approvals](#multi-tier-permission--security-guard) • [CLI Reference](#cli-flags--options) • [About QSL](#about-quantum-secular-labs)
+[Overview](#overview) • [Architecture](#system-architecture--react-loop-design) • [Binary Compilation](#binary-compilation--distribution-guide) • [ReAct Budget](#self-healing-react-engine--dynamic-step-budget) • [Enterprise UI](#enterprise-cli-ui--cognitive-reasoning-indications) • [Skills (18 Seeded)](#seeded-production-skills-catalog-18-skills) • [Security & Approvals](#multi-tier-permission-model--securityguard-sandbox) • [CLI Reference](#command-line-reference--flags) • [About QSL](#about-quantum-secular-labs)
 
 </div>
 
@@ -24,50 +25,68 @@ Developed by **[Quantum Secular Labs](https://quantumseclabs.com/)**
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Key Features](#key-features)
-3. [Architecture & 2026 Agent Standards](#architecture--2026-agent-standards)
-4. [Empirical Performance Benchmark](#empirical-performance-benchmark)
-5. [Multi-Tier Permission & Security Guard](#multi-tier-permission--security-guard)
-6. [Obsidian-Backed PKM & Long-Term Memory](#obsidian-backed-pkm--long-term-memory)
-7. [Extensible Skills Catalog (18 Seeded Skills)](#extensible-skills-catalog-18-seeded-skills)
-8. [Authoring Custom Skills](#authoring-custom-skills)
-9. [Local AI Engines & Dynamic Model Discovery](#local-ai-engines--dynamic-model-discovery)
-10. [Releases & Installation](#releases--installation)
-11. [CLI Flags & Options](#cli-flags--options)
-12. [Interactive Terminal REPL & Slash Commands](#interactive-terminal-repl--slash-commands)
-13. [Deterministic Tool Definitions (13 Built-in Tools)](#deterministic-tool-definitions-13-built-in-tools)
-14. [Configuration Reference (`config.toml`)](#configuration-reference-configtoml)
-15. [Troubleshooting & Diagnostics](#troubleshooting--diagnostics)
-16. [About Quantum Secular Labs](#about-quantum-secular-labs)
-17. [License & Intellectual Property](#license--intellectual-property)
+2. [Architectural Comparison: QSL Agent vs Traditional Python Stacks](#architectural-comparison-qsl-agent-vs-traditional-python-stacks)
+3. [Key Enterprise Features](#key-enterprise-features)
+4. [System Architecture & ReAct Loop Design](#system-architecture--react-loop-design)
+5. [Self-Healing ReAct Engine & Dynamic Step Budget](#self-healing-react-engine--dynamic-step-budget)
+6. [Enterprise CLI UI & Cognitive Reasoning Indications](#enterprise-cli-ui--cognitive-reasoning-indications)
+7. [Multi-Tier Permission Model & SecurityGuard Sandbox](#multi-tier-permission-model--securityguard-sandbox)
+8. [Obsidian-Backed PKM Cortex & Long-Term Memory](#obsidian-backed-pkm-cortex--long-term-memory)
+9. [Seeded Production Skills Catalog (18 Skills)](#seeded-production-skills-catalog-18-skills)
+10. [Local AI Provider Integration & Dynamic Discovery](#local-ai-provider-integration--dynamic-discovery)
+11. [Binary Compilation & Distribution Guide](#binary-compilation--distribution-guide)
+12. [Command-Line Reference & Flags](#command-line-reference--flags)
+13. [Interactive Terminal REPL & Slash Commands](#interactive-terminal-repl--slash-commands)
+14. [Deterministic Tool Reference (13 Built-in Tools)](#deterministic-tool-reference-13-built-in-tools)
+15. [Configuration Reference (`config.toml`)](#configuration-reference-configtoml)
+16. [Troubleshooting & Diagnostics](#troubleshooting--diagnostics)
+17. [About Quantum Secular Labs](#about-quantum-secular-labs)
+18. [License & Intellectual Property](#license--intellectual-property)
 
 ---
 
 ## Overview
 
-QSL Agent is an autonomous systems agent implemented in native Rust for Linux and macOS environments. It operates directly against on-premise inference runtimes—including Ollama, LM Studio, and standard OpenAI-compatible endpoints—without routing prompts, data, or telemetry through remote cloud platforms.
+QSL Agent is an enterprise-grade autonomous systems agent engineered in native Rust for modern Linux and macOS environments. It communicates directly with on-premise local inference engines—including Ollama, LM Studio, and standard OpenAI-compatible endpoints—without transmitting prompts, data payloads, or runtime telemetry to external cloud infrastructure.
 
-Unlike agent frameworks requiring complex Python virtual environments, heavy package trees, and runtime dependencies, QSL Agent compiles into an immutable, single **4.5 MB stripped binary**. It binds to your local Obsidian vault as a bidirectional Personal Knowledge Management (PKM) cortex, ensuring all memories, user profiles, daily execution traces, and operational playbooks remain human-readable files on your own filesystem.
-
----
-
-## Key Features
-
-- **Native Systems Performance**: Sub-3ms process start latency and ~15MB idle RAM footprint.
-- **Dynamic Model Auto-Discovery**: Automatically queries local engine catalogs at startup to bind available models across different hardware configurations without hardcoding.
-- **Adaptive KV Cache Allocation**: Dynamically bounds inference context per-prompt (`(estimated_tokens + 2048).clamp(4096, context_size)`), reducing CPU RAM cache allocation overhead and accelerating time-to-first-token.
-- **Live Elapsed-Time Feedback**: Asynchronous terminal ticker (`[Step N] (Xs) /`) during local model generation turns.
-- **Air-Gapped Privacy Architecture**: Zero network telemetry, zero external authentication tokens, and zero cloud lock-in.
-- **3-Tier Permission Manager**: Granular runtime authorization (`[y]` allow once, `[a]` always allow for session, `[n]` deny) for state-altering operations.
-- **SecurityGuard Sandbox**: Real-time regex inspection preventing destructive shell operations (`rm -rf`, raw device writes, system partition tampering) and private key leakage.
-- **Obsidian Cortex**: Profiles, daily activity logs, and long-term memories persist as standard Markdown with native bidirectional `[[wikilinks]]`.
-- **18 Seeded Production Skills**: Pre-packaged operational guidelines covering codebase audits, TDD debugging, Docker, SQL, Git, and Linux administration.
-- **Dual-Mode Tool Execution**: Parses both standard OpenAI JSON tool payloads and regex `<tool_call>` XML blocks from quantized models.
-- **Minimal Professional ASCII CLI**: High-contrast Unicode box-drawing frames with zero emoji clutter and build-synchronized version headers.
+Unlike conventional agent frameworks that rely on large Python runtimes, interpreter overhead, and extensive dependency trees, QSL Agent compiles into an immutable, standalone **4.5 MB stripped binary**. It integrates natively with your local Obsidian vault as a bidirectional Personal Knowledge Management (PKM) cortex, ensuring all memories, operational playbooks, user preferences, and daily logs remain human-readable Markdown files stored securely on your local storage.
 
 ---
 
-## Architecture & 2026 Agent Standards
+## Architectural Comparison: QSL Agent vs Traditional Python Stacks
+
+Empirical measurements gathered on x86_64 Linux executing multi-step autonomous development tasks (local Ollama backend, Qwen 2.5 / 3.5 models):
+
+| Metric | Traditional Python Stack (Hermes / AutoGPT) | QSL Agent (Rust v0.2.0) | Performance Advantage |
+|:---|:---:|:---:|:---|
+| **Cold Start Latency** | 450ms – 2,200ms (interpreter + import chain) | **< 3ms** (compiled native ELF binary) | **>150x faster startup** |
+| **Idle Memory Footprint** | 180MB – 420MB (runtime + pip wheels) | **~15MB** (zero garbage collector overhead) | **~94% memory reduction** |
+| **Distribution Footprint** | Multi-GB (virtualenv, site-packages, torch/pip) | **4.5MB Single Stripped Executable** | **Self-contained deployment** |
+| **Runtime Dependencies** | Python 3.10+, pip, build toolchains | **None** (statically linked binary) | **Zero environment drift** |
+| **Telemetry & Cloud Auth**| Mandatory remote API keys or portal sign-ins | **Zero** (100% On-Premise Air-Gapped) | **Absolute Data Sovereignty** |
+| **Persistent Memory Format**| Proprietary vector databases / cloud sync | **Obsidian Markdown (`[[wikilinks]]`)** | **Interoperable, Git-trackable files** |
+| **Step Budget Handling** | Hard failure after N steps with unhandled crash | **Dynamic Self-Healing & Synthesis Fallback** | **Resilient turn completion** |
+| **Safety Interception** | Post-exception handler / unconstrained shell | **Pre-execution Regex Sandbox + 3-Tier Gate** | **Deterministic command filtering** |
+
+---
+
+## Key Enterprise Features
+
+- **Sub-Millisecond Native Execution**: Immediate cold start with low resident memory overhead.
+- **Dynamic Local Model Discovery**: Auto-detects active models from local engines (`/api/tags` and `/v1/models`) without hardcoded model identifiers.
+- **Dynamic Obsidian Vault Discovery**: Recursively detects existing Obsidian vaults via environment variables (`OBSIDIAN_VAULT`), the official app registry (`obsidian.json`), and document directories without hardcoded paths.
+- **Cognitive Reasoning & Thought Display**: Automatically detects and extracts `<think>...</think>` blocks emitted by modern reasoning models (DeepSeek-R1, Qwen 2.5 / 3.5, HuiHui), rendering them inside an executive reasoning frame.
+- **Structured Tool Badges (No Raw JSON Walls)**: Parses and formats tool arguments into structured metadata badges (target path, byte count, line count preview, diff changes) instead of dumping escaped JSON strings.
+- **Self-Healing ReAct Engine**: Adaptive step budget management with loop repetition detection, approaching-limit warnings, interactive extension dialogs, and automated synthesis fallback.
+- **Executive Response Presentation**: Frames completed turn output in high-contrast response cards with zero emoji clutter.
+- **Air-Gapped Privacy Architecture**: Zero network telemetry, zero cloud authentication tokens, and zero external data transmission.
+- **3-Tier Permission Manager**: Granular runtime authorization (`[y]` allow once, `[a]` always allow for session, `[n]` deny) for mutating operations.
+- **SecurityGuard Sandbox**: Real-time regex inspection preventing destructive shell commands (`rm -rf`, raw device writes, system partition tampering) and private key leakage.
+- **18 Seeded Production Skills**: Pre-packaged operational guidelines covering codebase inspection, software development, security audits, Docker, SQL, Git, and Linux administration.
+
+---
+
+## System Architecture & ReAct Loop Design
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -80,16 +99,16 @@ Unlike agent frameworks requiring complex Python virtual environments, heavy pac
                          └──────────┬──────────┘
                                     │
                          ┌──────────▼──────────┐
-                         │  ReAct Agent Loop   │
-                         │  (Step Controller)  │
+                         │  Adaptive ReAct Loop│
+                         │ (Dynamic Controller)│
                          └─────┬───────────┬───┘
                                │           │
-       ┌───────────────────────┴──┐     ┌──┴─────────────────────────┐
-       │   Local AI Provider      │     │  Interactive Approval Gate │
-       │  (Ollama / LM Studio)    │     │   [y] Once | [a] Always    │
-       │  Auto-Detect & GGUF      │     │   [n] Deny Session         │
-       └──────────────────────────┘     └──┬─────────────────────────┘
-                                           │
+        ┌───────────────────────┴──┐     ┌──┴─────────────────────────┐
+        │   Local AI Provider      │     │  Interactive Approval Gate │
+        │  (Ollama / LM Studio)    │     │   [y] Once | [a] Always    │
+        │  Auto-Detect & GGUF      │     │   [n] Deny Session         │
+        └──────────────────────────┘     └──┬─────────────────────────┘
+                                            │
                          ┌─────────────────▼─────────────────┐
                          │      SecurityGuard Sandbox        │
                          │  (Regex Destructive Interceptor)  │
@@ -105,33 +124,125 @@ Unlike agent frameworks requiring complex Python virtual environments, heavy pac
 
 ---
 
-## Empirical Performance Benchmark
+## Self-Healing ReAct Engine & Dynamic Step Budget
 
-Measurements performed on Linux x86_64 across identical agentic task executions (local Ollama backend, Qwen 2.5/3.5 models):
+Traditional autonomous agents frequently fail when models take more reasoning steps than anticipated or get stuck in repetitive action loops, producing fatal errors such as:
+`Agent Error: Agent exceeded maximum ReAct steps (20) for this turn.`
 
-| Metric | Traditional Python Stack (Hermes / AutoGPT) | QSL Agent (Rust v0.2.0) | Performance Advantage |
-|:---|:---:|:---:|:---|
-| **Cold Start Latency** | 450ms – 2,200ms (interpreter + import overhead) | **< 3ms** (native compiled ELF binary) | **>150x faster startup** |
-| **Process Idle RAM** | 180MB – 420MB (Python runtime + wheel dependencies) | **~15MB** (zero garbage collection overhead) | **~94% memory reduction** |
-| **Distribution Footprint** | Multi-GB (virtualenv, wheels, torch/pip caches) | **4.5MB Single Stripped Binary** | **Self-contained zero-dependency artifact** |
-| **External Dependencies** | Python 3.10+, pip, system build toolchains | **None** (statically linked against glibc) | **Zero environment drift** |
-| **Telemetry & Cloud Auth**| Mandatory remote API keys or portal sign-ins | **Zero** (100% On-Premise Air-Gapped) | **Absolute Data Sovereignty** |
-| **Persistent Memory Format**| Proprietary vector databases / cloud sync | **Obsidian Markdown (`[[wikilinks]]`)** | **Interoperable, Git-trackable files** |
-| **Safety Interception** | Post-exception handler / unconstrained shell | **Pre-execution Regex Sandbox + 3-Tier Gate** | **Deterministic command filtering** |
+QSL Agent resolves this through a multi-tier adaptive step controller:
+
+### 1. Increased Operational Default
+The default `max_react_steps` budget is set to **35** (configured in both `src/config.rs` and `~/.config/qsl-agent/config.toml`), accommodating multi-phase codebase audits and refactoring tasks.
+
+### 2. Repetition & Loop Interception
+The engine continuously registers executed tool signatures `(tool_name:arguments)`. If an identical tool call is attempted consecutively, the engine injects a system directive:
+```text
+[SYSTEM DIRECTIVE] Repeated tool action detected for 'write_file'. You have already
+executed this action with identical parameters. Do NOT repeat it. Conclude this task
+or transition to the next distinct action now.
+```
+This breaks model hallucinations and prevents infinite spinning on duplicate commands.
+
+### 3. Approaching-Budget Warning
+When `max_steps - 3` is reached, QSL Agent injects an early notice into the model context:
+```text
+[SYSTEM DIRECTIVE] Approaching step budget limit (step 32 of 35). Conclude remaining
+tool operations immediately and synthesize your final comprehensive response.
+```
+
+### 4. Interactive Budget Extension Modal
+If an interactive turn reaches the step ceiling, QSL Agent pauses and presents an interactive resolution menu:
+```text
+╭── [STEP LIMIT REACHED] ───────────────────────────────────────────╮
+│  Agent reached step budget limit (35/35 steps).                   │
+├───────────────────────────────────────────────────────────────────┤
+│  [c] Extend (+15 steps)  │  [f] Force synthesis  │  [s] Stop turn    │
+╰───────────────────────────────────────────────────────────────────╯
+  action [c/f/s] > 
+```
+- **`[c]` Extend**: Dynamically grants +15 additional ReAct steps to complete complex execution trees.
+- **`[f]` Force Synthesis**: Requests an immediate conclusion without tools, prompting the model to summarize all findings gathered so far.
+- **`[s]` Stop Turn**: Cleanly halts execution and preserves context without crashing.
+
+### 5. Automated Non-Interactive Fallback (`-P`)
+In headless script or CI mode (`-P`), QSL Agent automatically extends the budget once up to 50 steps. If the step limit is reached, it automatically invokes a zero-tool synthesis completion turn. The user **always receives a completed response** instead of an unhandled exception.
 
 ---
 
-## Multi-Tier Permission & Security Guard
+## Enterprise CLI UI & Cognitive Reasoning Indications
+
+QSL Agent features a minimal, high-contrast terminal user interface built strictly with Unicode box-drawing characters (`╭`, `─`, `╮`, `│`, `╰`, `╯`, `├`, `┤`). In compliance with enterprise standards, it uses **zero emojis**.
+
+### 1. Cognitive Reasoning Frame
+Models emitting `<think>...</think>` blocks (such as DeepSeek-R1, Qwen 2.5 / 3.5, and fine-tuned quantized models) have their internal chain of thought extracted and displayed inside an executive card:
+
+```text
+╭── [REASONING & COGNITIVE PLANNING] ───────────────────────────────────
+│  Analyzing project directory hierarchy and locating Cargo manifests...
+│  Found Cargo.toml with 14 dependencies.
+│  Planning syntax check via cargo check before performing surgical edits...
+╰───────────────────────────────────────────────────────────────────────
+```
+
+### 2. Structured Action Badges (No Raw JSON Dumps)
+Tool calls are parsed into structured badges displaying relevant metadata rather than escaped JSON text:
+
+```text
+╭── [ACTION: write_file] ───────────────────────────────────────────
+│  Target:      src/main.rs
+│  Payload:     1,420 bytes (42 lines)
+╰───────────────────────────────────────────────────────────────────
+```
+
+```text
+╭── [ACTION: execute_command] ──────────────────────────────────────
+│  Command:     cargo test --all
+╰───────────────────────────────────────────────────────────────────
+```
+
+```text
+╭── [ACTION: edit_file] ────────────────────────────────────────────
+│  Target:      src/config.rs
+│  Diff:        replace 45 bytes with 52 bytes
+╰───────────────────────────────────────────────────────────────────
+```
+
+### 3. Clean Result Cards
+Outputs from commands and filesystem operations are bounded to prevent terminal flooding while preserving exit codes and byte telemetry:
+
+```text
+╭── [RESULT: execute_command] [OK] ─────────────────────────────────
+│  test result: ok. 14 passed; 0 failed; 0 ignored; finished in 0.06s
+╰───────────────────────────────────────────────────────────────────
+```
+
+### 4. Executive Final Response Card
+The synthesized answer is delivered in a distinguished executive card:
+
+```text
+╭── [EXECUTIVE RESPONSE] ───────────────────────────────────────────────
+│
+│  The codebase audit is complete. All 14 unit tests pass with zero
+│  regressions. Architecture documentation has been synchronized to Obsidian.
+│
+╰───────────────────────────────────────────────────────────────────────
+```
+
+---
+
+## Multi-Tier Permission Model & SecurityGuard Sandbox
 
 ### 1. Interactive Permission Review (Mutating Tools)
-When the model invokes a state-altering tool (`execute_command`, `write_file`, `edit_file`, `obsidian_write`, `obsidian_append`, `skill_create`), QSL Agent suspends execution and displays an interactive modal:
+When the model invokes a state-altering tool (`execute_command`, `write_file`, `edit_file`, `obsidian_write`, `obsidian_append`, `skill_create`), QSL Agent suspends execution and displays an authorization prompt:
 
 ```text
 ╭─── [PERMISSION REVIEW] ───────────────────────────────────────────╮
-│  Tool:  execute_command
-│  Args:  {"command": "cargo test --all"}
+│  Tool:    write_file
+│  Target:  src/agent.rs
+│  Payload: 12,480 bytes (394 lines)
 ├───────────────────────────────────────────────────────────────────┤
 │  [y] Allow once  │  [a] Always allow (session)  │  [n] Deny
+│  Tip: Select [a] to auto-approve subsequent steps without pausing
 ╰───────────────────────────────────────────────────────────────────╯
   permission > 
 ```
@@ -140,13 +251,13 @@ When the model invokes a state-altering tool (`execute_command`, `write_file`, `
 - **`[a]` Always Allow**: Authorizes this tool class for the remainder of the session without interrupting again.
 - **`[n]` Deny**: Instantly rejects execution and feeds the refusal message back into the model so it can formulate an alternative plan.
 
-Modes can be toggled using `/approval <ask | always | strict>` or via the `-a` CLI argument:
+Permission modes can be set via `/approval <ask | always | strict>` or using the `-a` CLI argument:
 - **`Ask`** *(Default)*: Interactively prompts for any mutating call; read-only operations pass automatically.
-- **`Always`**: Autonomous hands-off execution for trusted CI/script pipelines.
-- **`Strict`**: Every mutating call requires manual `[y]` approval (no session-wide bypass permitted).
+- **`Always`**: Autonomous execution for trusted workflows.
+- **`Strict`**: Every mutating call requires manual `[y]` approval (session-wide bypass disabled).
 
 ### 2. SecurityGuard Regex Sandbox
-Before any shell command or filesystem write is attempted, `SecurityGuard` evaluates the operation:
+Before any shell command or filesystem write is executed, `SecurityGuard` inspects the payload:
 - **Destructive Deletion Interception**: Intercepts `rm -rf`, `find -delete`, `find -exec rm`, `xargs rm`, and `shred`.
 - **Filesystem Integrity**: Blocks raw device overwrites (`> /dev/sd*`, `> /dev/nvme*`), partition tools (`fdisk`, `parted`), and `mkfs`.
 - **Privilege & Secret Shield**: Prohibits direct access or reads to `/etc/shadow`, `/etc/sudoers`, SSH private keys (`id_rsa`, `id_ed25519`), AWS credentials, and kubeconfigs.
@@ -155,7 +266,7 @@ Before any shell command or filesystem write is attempted, `SecurityGuard` evalu
 
 ---
 
-## Obsidian-Backed PKM & Long-Term Memory
+## Obsidian-Backed PKM Cortex & Long-Term Memory
 
 QSL Agent integrates with your local Obsidian vault to store its memory cortex:
 
@@ -172,14 +283,14 @@ Your_Obsidian_Vault/
     └── Skills/             # 18 seeded and dynamically authored SKILL.md files
 ```
 
-- **Dynamic Vault Auto-Discovery**: Never hardcoded to a specific path or machine. QSL Agent automatically scans the `OBSIDIAN_VAULT` environment variable, the official Obsidian app registry (`obsidian.json`), and common directories (`~/Documents/*`, `~/Obsidian`, `~/Notes`, `~/Vault`) for active `.obsidian/` roots. If no vault exists yet, it cleanly initializes a default at `~/Documents/Obsidian_Vault`. Use `/vault` in the REPL to list all detected vaults or `/vault auto` to re-trigger auto-discovery.
+- **Dynamic Vault Auto-Discovery**: Automatically scans the `OBSIDIAN_VAULT` environment variable, the official Obsidian app registry (`obsidian.json`), and document directories (`~/Documents/*`, `~/Obsidian`, `~/Notes`, `~/Vault`) for active `.obsidian/` roots. If no vault exists yet, it cleanly initializes a default at `~/Documents/Obsidian_Vault`. Use `/vault` in the REPL to list detected vaults or `/vault auto` to re-trigger discovery.
 - **Profile & Context Injection**: On every new session, recent entries from `Profile.md` and `Memories.md` are dynamically summarized and injected into the agent's system prompt.
 - **Daily Journaling**: Every completed turn automatically logs timestamped exchanges into `Daily/YYYY-MM-DD.md`.
-- **Bidirectional Links**: The agent is instructed to use Obsidian `[[wikilinks]]` to interlink topics and project notes.
+- **Bidirectional Links**: The agent utilizes Obsidian `[[wikilinks]]` to interlink concepts and project notes.
 
 ---
 
-## Extensible Skills Catalog (18 Seeded Skills)
+## Seeded Production Skills Catalog (18 Skills)
 
 Skills are hot-reloaded automatically on boot from:
 1. `~/.config/qsl-agent/skills/`
@@ -209,56 +320,28 @@ Skills are hot-reloaded automatically on boot from:
 
 ---
 
-## Authoring Custom Skills
+## Local AI Provider Integration & Dynamic Discovery
 
-Create a new directory inside `<Obsidian_Vault>/QSL_Agent/Skills/<skill-name>/` containing a `SKILL.md` file:
-
-```markdown
----
-name: kubernetes-helm
-description: "Deploy, inspect, and package Kubernetes applications using Helm charts"
-tags: [kubernetes, helm, devops, containers]
-version: 1.0.0
-year: 2026
----
-
-# Kubernetes & Helm Skill (2026 Edition)
-
-## Purpose
-Inspect, lint, and deploy manifests safely using helm and kubectl.
-
-## Guidelines
-1. Always run `helm lint` before applying chart modifications.
-2. Verify target cluster context using `kubectl config current-context`.
-3. Check pod status using `kubectl get pods -n <namespace>`.
-```
-
-Alternatively, tell the agent in plain language to create the skill using the built-in `skill_create` tool.
-
----
-
-## Local AI Engines & Dynamic Model Discovery
-
-Different machines feature different hardware specifications and local model rosters. QSL Agent requires **zero hardcoded model dependencies**. On every startup, it dynamically queries the active engine catalog:
+QSL Agent requires **zero hardcoded model dependencies**. On startup, it dynamically queries the active engine catalog:
 
 ### 1. Ollama (Default Engine)
 ```bash
 # Start Ollama engine
 ollama serve
 
-# Pull any local model suited for your hardware (e.g. 7B, 9B, 14B, 32B)
+# Pull any model suited for your hardware
 ollama pull huihui-qwen35-9b-256k:latest
 # or
-ollama pull llama3.3:latest
+ollama pull qwen2.5-coder:7b
 # or
-ollama pull mistral:latest
+ollama pull llama3.3:latest
 
-# Launch QSL Agent - it automatically detects and binds to your installed model:
+# Launch QSL Agent - it automatically detects and binds to your model:
 ./Releases/qsl-agent
 ```
 
-- **Dynamic Fallback**: If multiple models exist, QSL Agent binds to the first loaded model.
-- **Runtime Model Switch**: Type `/models` inside the REPL to list all available local models, and `/model <name>` to switch instantly without restarting.
+- **Dynamic Fallback**: If multiple models exist, QSL Agent binds to the first available model.
+- **Runtime Model Switch**: Type `/models` inside the REPL to list models, and `/model <name>` to switch instantly.
 
 ### 2. LM Studio
 1. Open LM Studio on your workstation.
@@ -277,43 +360,58 @@ Supports `vLLM`, `llama.cpp` server (`llama-server`), `LocalAI`, or any self-hos
 
 ---
 
-## Releases & Installation
+## Binary Compilation & Distribution Guide
 
-### Pre-Compiled Standalone Binaries (Linux x86_64)
-Ready-to-run release binaries are generated in the `Releases/` folder:
+### Do We Need the `target/` Folder to Run or Distribute?
+**No.** The `target/` folder is exclusively an intermediate scratch workspace created by Cargo during compilation. It stores temporary compiler artifacts, dependency caches (`.rlib`), and debug symbol tables. 
 
-- **`Releases/qsl-agent`**: Latest production stripped binary (4.5 MB).
-- **`Releases/qsl-agent-v0.2.0-linux-x86_64`**: Version-tagged immutable release archive.
+Once compilation completes, the resulting executable (`target/release/qsl_agent`) is completely self-contained. You do not need to ship, copy, or retain the `target/` folder.
 
-Run directly without installing any runtime dependencies:
-```bash
-chmod +x Releases/qsl-agent
-./Releases/qsl-agent --health-check
-```
+### Step-by-Step Binary Creation
 
-### Build from Source
-#### Prerequisites
-- Linux or macOS with Rust 1.80+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
-- Standard Unix utilities (`bash`, `curl`, `grep`, `find`)
+#### 1. Prerequisites
+- Linux (x86_64, aarch64) or macOS (Apple Silicon / Intel)
+- Rust toolchain 1.80+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
 
-#### Compile & Strip
+#### 2. Clone the Repository
 ```bash
 git clone https://github.com/0x0806/qsl_agent.git
-cd qsl-agent
-
-# Build fully optimized release binary
-cargo build --release
-
-# Stage production binary into Releases/
-mkdir -p Releases
-cp target/release/qsl_agent Releases/qsl-agent
-strip Releases/qsl-agent
-cp Releases/qsl-agent Releases/qsl-agent-v0.2.0-linux-x86_64
+cd qsl_agent
 ```
+
+#### 3. Build with Maximum Release Optimizations
+```bash
+cargo build --release
+```
+This builds an optimized binary located at `target/release/qsl_agent`.
+
+#### 4. Strip Debug Symbols for Minimal Size
+Strip the symbol table to reduce binary size from ~30MB down to **4.5 MB**:
+```bash
+strip target/release/qsl_agent
+```
+
+#### 5. Install or Stage the Binary
+You can copy the binary into `Releases/` for local execution or install it globally to your system path:
+```bash
+# Stage in project release directory
+mkdir -p Releases
+install -m 755 target/release/qsl_agent Releases/qsl-agent
+
+# Or install system-wide
+sudo install -m 755 target/release/qsl_agent /usr/local/bin/qsl-agent
+```
+
+#### 6. Clean Intermediate Build Artifacts
+You can safely remove the `target/` folder after compilation to recover disk space:
+```bash
+cargo clean
+```
+The installed binary in `Releases/qsl-agent` or `/usr/local/bin/qsl-agent` will continue to run independently with zero external dependencies.
 
 ---
 
-## CLI Flags & Options
+## Command-Line Reference & Flags
 
 ```text
 Usage: qsl-agent [OPTIONS]
@@ -334,37 +432,38 @@ Options:
   -V, --version                    Print version information
 ```
 
-### Examples
+### Common Usage Examples
 ```bash
 # Launch interactive REPL with auto-detected local model
-./Releases/qsl-agent
+qsl-agent
 
 # Execute a one-shot automated task non-interactively
-./Releases/qsl-agent -P "Inspect src/ for memory leaks and update architecture notes in Obsidian"
+qsl-agent -P "Audit src/ for security issues and record findings in Obsidian"
 
 # Run with LM Studio and strict permissions
-./Releases/qsl-agent -p lmstudio -a strict
+qsl-agent -p lmstudio -a strict
 
 # Run health diagnostics
-./Releases/qsl-agent --health-check
+qsl-agent --health-check
 ```
 
 ---
 
 ## Interactive Terminal REPL & Slash Commands
 
-When launched without a prompt argument, QSL Agent opens an interactive readline shell:
+When launched without a prompt argument, QSL Agent starts an interactive shell:
 
 ```text
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ QSL AGENT — AUTONOMOUS LOCAL INTELLIGENCE (v0.2.0)                         │
-│ [100% LOCAL]  [ZERO CLOUD]  [OBSIDIAN CORTEX]  [SECURITY GUARD]              │
+│ [100% LOCAL]  [ZERO CLOUD]  [OBSIDIAN CORTEX]  [SECURITY GUARD]            │
 ├────────────────────────────────────────────────────────────────────────────┤
-│ Engine:    ollama                                                            │
-│ Model:     huihui-qwen35-9b-256k:latest                                      │
-│ Approval:  Ask [Interactive Review: y/a/n]                                   │
-│ Skills:    18 operational skills active                                      │
-│ Vault:     /home/user/Documents/Obsidian_Vault                               │
+│ Engine:    ollama                                                          │
+│ Model:     huihui-qwen35-9b-256k:latest                                    │
+│ Approval:  Ask [Interactive Review: y/a/n]                                 │
+│ Skills:    18 operational skills active                                    │
+│ Vault:     /home/user/Documents/Obsidian_Vault                             │
+│ Org:       Quantum Secular Labs (https://quantumseclabs.com/)              │
 ├────────────────────────────────────────────────────────────────────────────┤
 │ Tip: Type /help for command manual or enter any autonomous task prompt.    │
 ╰────────────────────────────────────────────────────────────────────────────╯
@@ -392,14 +491,12 @@ qsl-agent >
 
 ---
 
-## Deterministic Tool Definitions (13 Built-in Tools)
-
-The agent dynamically decides which tool to call:
+## Deterministic Tool Reference (13 Built-in Tools)
 
 | Tool Name | Parameters | Description |
 |:---|:---|:---|
 | `execute_command` | `command: string` | Run sandboxed local bash command with timeout protection. |
-| `read_file` | `path: string`, `start_line?: int`, `end_line?: int` | Read text file or slice specific line ranges. |
+| `read_file` | `path: string`, `offset?: int`, `limit?: int` | Read text file or slice specific line ranges. |
 | `write_file` | `path: string`, `content: string` | Create or overwrite file on disk. |
 | `edit_file` | `path: string`, `target: string`, `replacement: string` | Surgical string find-and-replace in file. |
 | `list_dir` | `path?: string` | List directory contents with entry types (`DIR`, `FILE`, `LINK`). |
@@ -419,6 +516,12 @@ The agent dynamically decides which tool to call:
 Configurations are persisted in `~/.config/qsl-agent/config.toml`:
 
 ```toml
+# =============================================================================
+# QSL Agent Configuration (2026 Edition)
+# Developed by Quantum Secular Labs (https://quantumseclabs.com/)
+# Autonomous, 100% Local & Sovereign Intelligence Engine
+# =============================================================================
+
 # AI Inference Engine ("ollama", "lmstudio", or "custom")
 provider = "ollama"
 
@@ -428,7 +531,7 @@ lmstudio_url = "http://127.0.0.1:1234/v1"
 custom_url = ""
 
 # Active Model (leave blank to auto-detect at startup)
-model = "huihui-qwen35-9b-256k:latest"
+model = ""
 
 # Obsidian Vault Cortex (leave empty to auto-detect from local system)
 obsidian_vault_path = ""
@@ -440,7 +543,7 @@ context_size = 16384
 
 # Runtime & Security Settings
 auto_approve_commands = false    # Set to true for unattended autonomous execution
-max_react_steps = 20            # Maximum reasoning iterations per turn
+max_react_steps = 35            # Adaptive reasoning iterations per turn
 command_timeout_secs = 30       # Shell command execution timeout limit
 ```
 
@@ -461,7 +564,10 @@ command_timeout_secs = 30       # Shell command execution timeout limit
 - SecurityGuard intercepted a command matching dangerous patterns (`rm -rf`, `find -delete`, writing to `/boot`, reading `/etc/shadow`).
 - Review the blocked command in the terminal error frame. Use safer alternatives (e.g. `rm <single_file>` or read specific paths).
 
-### 3. Corrupted Configuration
+### 3. Step Limit Reached
+- If the agent reaches its step limit on an extensive task, use the `[c]` key in the interactive prompt to grant +15 additional steps, or increase `max_react_steps` in `~/.config/qsl-agent/config.toml`.
+
+### 4. Configuration Regeneration
 - If `config.toml` contains syntax errors, QSL Agent automatically backs it up to `config.toml.bak` and regenerates a clean default configuration.
 
 ---
