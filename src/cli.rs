@@ -45,6 +45,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/undo", "[n]  Remove the last n turns"),
     ("/retry", "Re-run the last prompt"),
     ("/rollback", "Undo file changes made in the last turn"),
+    ("/checkpoints", "List file checkpoints in this session"),
     ("/compact", "Summarise older context now"),
     ("/export", "[md|json] [path]  Export the session"),
     ("/usage", "Token usage and session statistics"),
