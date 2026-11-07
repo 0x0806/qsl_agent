@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `install.sh` (Linux/macOS) and `install.ps1` (Windows): one-line, system-wide installers that fetch the prebuilt release binary, verify its SHA-256, and install both `qsl-agent` and `qslagent`. They fall back to a cargo source build.
+- `.github/workflows/release.yml`: builds Linux (x86_64/arm64), macOS (x86_64/arm64) and Windows (x64) binaries on every `v*` tag and attaches them to the GitHub release.
+
 ## v0.5.0 — Unified build (2026-11-04)
 
 v0.5 merges the working v0.2 build (box-drawing terminal UI, Obsidian memory,

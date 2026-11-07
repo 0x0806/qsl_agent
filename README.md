@@ -66,11 +66,8 @@ Developed by **[Quantum Secular Labs](https://quantumseclabs.com/)** · [Changel
 ollama serve &
 ollama pull qwen2.5-coder:7b
 
-# 2. Build and install QSL Agent
-git clone https://github.com/0x0806/qsl_agent.git
-cd qsl_agent
-./build-test/build.sh
-sudo install -m 755 build-test/bin/qsl-agent /usr/local/bin/qsl-agent
+# 2. Install QSL Agent system-wide (Linux / macOS); Windows: see Installation below
+curl -fsSL https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.sh | bash
 
 # 3. Check everything is connected, then start
 qsl-agent --health-check
@@ -82,6 +79,42 @@ On first run, QSL Agent writes `~/.config/qsl-agent/config.toml` with sensible d
 ---
 
 ## Installation
+
+### One-line install (recommended)
+
+Installs `qsl-agent` and a `qslagent` command (same program) so you can run either from anywhere.
+
+**Linux / macOS** (x86_64 or arm64), system-wide in `/usr/local/bin` (uses `sudo` if needed):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.sh | bash
+```
+
+**Windows** (PowerShell). Run as Administrator for all users, or normally for the current user only:
+
+```powershell
+irm https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.ps1 | iex
+```
+
+Both installers download the prebuilt binary for your platform from the latest GitHub release, verify its SHA-256, and fall back to building from source (needs Rust and git) if none is available. Options:
+
+| Linux / macOS (`bash -s -- …`) | Windows (`-…`) | Effect |
+|:--|:--|:--|
+| `--version v0.5.0` | `-Version v0.5.0` | Install a specific release |
+| `--user` | `-User` | Current user only (`~/.local/bin`, `%LOCALAPPDATA%\Programs`) |
+| `--prefix DIR` | `-Prefix DIR` | Install into a custom directory |
+| `--from-source` | `-FromSource` | Build with cargo instead of downloading |
+| `--uninstall` | `-Uninstall` | Remove the binaries (config and vault are kept) |
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.sh | bash -s -- --user
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.ps1))) -User
+```
+
+Re-running the installer upgrades an existing install. The manual build steps below are for contributors.
 
 ### Requirements
 
