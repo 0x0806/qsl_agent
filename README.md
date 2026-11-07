@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Rust](https://img.shields.io/badge/Rust-1.89%2B-orange?style=for-the-badge&logo=rust)
-![Release](https://img.shields.io/badge/Release-v0.5.0-brightgreen?style=for-the-badge)
+![Release](https://img.shields.io/badge/Release-v0.5.1-brightgreen?style=for-the-badge)
 ![Architecture](https://img.shields.io/badge/Inference-100%25%20Local-purple?style=for-the-badge)
 ![Security](https://img.shields.io/badge/Security-3--Tier%20Guard-red?style=for-the-badge)
 ![PKM](https://img.shields.io/badge/Memory-Obsidian%20Native-blueviolet?style=for-the-badge)
