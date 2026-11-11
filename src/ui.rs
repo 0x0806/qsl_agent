@@ -26,8 +26,11 @@ pub fn quiet() -> bool {
 
 /// Decide colour once: `--no-color`, `NO_COLOR`, or a non-TTY stdout disable it.
 pub fn init_colors(force_off: bool) {
-    let off =
-        force_off || std::env::var_os("NO_COLOR").is_some() || !std::io::stdout().is_terminal();
+    let dumb = std::env::var("TERM").is_ok_and(|t| t == "dumb");
+    let off = force_off
+        || std::env::var_os("NO_COLOR").is_some()
+        || dumb
+        || !std::io::stdout().is_terminal();
     colored::control::set_override(!off);
 }
 
@@ -118,87 +121,163 @@ pub struct BannerInfo<'a> {
     pub vault: &'a str,
     pub session: &'a str,
     pub resumed: usize,
+    /// Host receiving the data when the engine is hosted (not local).
+    pub remote_host: Option<&'a str>,
 }
 
 pub fn banner(b: &BannerInfo<'_>) {
     if quiet() {
         return;
     }
-    let inner = width().saturating_sub(2).min(78);
-    let sep = "─".repeat(inner);
-    let row = |raw: &str, colored_text: String| {
-        let pad = inner.saturating_sub(2).saturating_sub(raw.chars().count());
-        out!(
-            "{} {}{} {}",
-            "│".bright_cyan(),
-            colored_text,
-            " ".repeat(pad),
-            "│".bright_cyan()
-        );
-    };
-    let kv = |k: &str, v: &str, paint: fn(&str) -> ColoredString| {
-        let v = truncate_chars(v, inner.saturating_sub(14));
-        row(
-            &format!("{k:<10} {v}"),
-            format!("{} {}", format!("{k:<10}").bold().white(), paint(&v)),
-        );
-    };
-
-    out!();
-    out!("{}", format!("╭{sep}╮").bright_cyan());
-    let title = format!("QSL AGENT — AUTONOMOUS LOCAL INTELLIGENCE (v{VERSION})");
-    row(&title, title.bold().bright_green().to_string());
-    let badges = "[100% LOCAL]  [ZERO CLOUD]  [OBSIDIAN CORTEX]  [SECURITY GUARD]";
-    row(
-        badges,
-        format!(
-            "{}  {}  {}  {}",
-            "[100% LOCAL]".green().bold(),
-            "[ZERO CLOUD]".blue().bold(),
-            "[OBSIDIAN CORTEX]".magenta().bold(),
-            "[SECURITY GUARD]".red().bold()
-        ),
-    );
-    out!("{}", format!("├{sep}┤").bright_cyan());
-    kv(
-        "Engine:",
-        &format!("{} ({})", b.provider, b.endpoint),
-        |s| s.cyan().bold(),
-    );
+    use crate::brand;
     let model = if b.model.is_empty() {
-        "<none detected — use /models>"
+        "<none detected, use /models>"
     } else {
         b.model
     };
-    kv("Model:", model, |s| s.yellow().bold());
-    kv(
-        "Tier:",
-        crate::provider::ModelTier::from_model_name(model).label(),
-        |s| s.bright_cyan(),
-    );
-    kv("Context:", b.context, |s| s.bright_cyan());
-    kv("Approval:", b.approval, |s| s.green().bold());
-    kv(
-        "Skills:",
-        &format!("{} skills | {} tools", b.skills, b.tools),
-        |s| s.magenta().bold(),
-    );
-    kv("Vault:", b.vault, |s| s.bright_black());
     let sess = if b.resumed > 0 {
         format!("{} (resumed, {} messages)", b.session, b.resumed)
     } else {
         b.session.to_string()
     };
-    kv("Session:", &sess, |s| s.bright_black());
-    kv(
-        "Org:",
-        "Quantum Secular Labs (https://quantumseclabs.com/)",
-        |s| s.cyan(),
+    let w = width();
+    let mark = brand::mark_rows();
+    let wide = w >= 74 && brand::level() != brand::ColorLevel::None;
+    let indent = 2;
+    let gap = 3;
+    let text_w = if wide {
+        w.saturating_sub(indent + brand::MARK_COLS + gap)
+    } else {
+        w.saturating_sub(indent)
+    };
+    let kv = |k: &str, v: &str| -> String {
+        let v = truncate_chars(v, text_w.saturating_sub(14));
+        format!("{} {}", format!("{k:<9}").dimmed(), v)
+    };
+    let tier_full = crate::provider::ModelTier::from_model_name(model).label();
+    let tier = tier_full.split(" [").next().unwrap_or(tier_full);
+    let mut info_lines: Vec<String> = vec![
+        format!(
+            "{} {}",
+            brand::ink("QSL Agent"),
+            brand::accent(&format!("v{VERSION}"))
+        ),
+        format!("{}", brand::TAGLINE.dimmed()),
+        format!(
+            "{}",
+            format!(
+                "by {} \u{b7} {}",
+                brand::COMPANY,
+                brand::WEBSITE.trim_end_matches('/')
+            )
+            .dimmed()
+        ),
+        String::new(),
+        kv("engine", &format!("{} ({})", b.provider, b.endpoint)),
+        kv("model", &format!("{model} \u{b7} {tier}")),
+        kv("context", b.context),
+        kv("approval", b.approval),
+        kv(
+            "skills",
+            &format!("{} skills \u{b7} {} tools", b.skills, b.tools),
+        ),
+        kv("session", &sess),
+    ];
+    info_lines.push(kv("vault", b.vault));
+    if let Some(host) = b.remote_host {
+        info_lines.push(format!(
+            "{} {}",
+            format!("{:<9}", "hosted").yellow().bold(),
+            format!("data is sent to {host}").yellow().bold()
+        ));
+    }
+    out!();
+    if wide {
+        let rows = mark.len().max(info_lines.len());
+        for i in 0..rows {
+            let m = mark
+                .get(i)
+                .cloned()
+                .unwrap_or_else(|| " ".repeat(brand::MARK_COLS));
+            let t = info_lines.get(i).cloned().unwrap_or_default();
+            out!("{}{}{}{}", " ".repeat(indent), m, " ".repeat(gap), t);
+        }
+    } else {
+        out!(
+            "{}{} {}",
+            " ".repeat(indent),
+            brand::compact_mark(),
+            info_lines[0]
+        );
+        for l in info_lines.iter().skip(1) {
+            out!("{}{}", " ".repeat(indent), l);
+        }
+    }
+    out!();
+    let rule = "\u{2500}".repeat(w.saturating_sub(indent * 2 + 1).min(86));
+    out!("{}{}", " ".repeat(indent), brand::accent(&rule));
+    let tip = if wide {
+        "/help commands \u{b7} Ctrl+C stops a turn \u{b7} \\ or \"\"\" for multi-line \u{b7} /about"
+    } else {
+        "/help \u{b7} Ctrl+C stops a turn \u{b7} /about"
+    };
+    out!("{}{}", " ".repeat(indent), tip.dimmed());
+    out!("{}{}", " ".repeat(indent), brand::COPYRIGHT.dimmed());
+    out!();
+}
+
+/// Data-sharing notice for hosted engines. Returns true only on an explicit "yes".
+pub fn cloud_notice(lines: &[String]) -> bool {
+    let w = width();
+    out!();
+    out!("{}", header("DATA LEAVES THIS MACHINE").bold().yellow());
+    for l in lines {
+        for row in framed_lines(l, |s| s.normal()) {
+            out!("{row}");
+        }
+        out!("\u{2502}");
+    }
+    out!(
+        "{}",
+        "\u{2570}".to_string() + &"\u{2500}".repeat(w.saturating_sub(1))
     );
-    out!("{}", format!("├{sep}┤").bright_cyan());
-    let tip = "Tip: /help for commands | Ctrl+C stops a turn | \\ or \"\"\" for multi-line";
-    row(tip, format!("{} {}", "Tip:".yellow().bold(), &tip[5..]));
-    out!("{}", format!("╰{sep}╯").bright_cyan());
+    let answer = ask_line(&format!(
+        "{} ",
+        "Type 'yes' to send your data to this service, anything else cancels >".bold()
+    ));
+    answer.is_some_and(|a| a.trim().eq_ignore_ascii_case("yes"))
+}
+
+/// `/about`: company, product and licence information.
+pub fn about() {
+    use crate::brand;
+    out!();
+    out!(
+        "  {} {}",
+        brand::ink("QSL Agent"),
+        brand::accent(&format!("v{VERSION}"))
+    );
+    out!("  {}", brand::TAGLINE);
+    out!();
+    for (k, v) in [
+        ("company", brand::COMPANY.to_string()),
+        ("website", brand::WEBSITE.to_string()),
+        ("product", brand::PRODUCT_PAGE.to_string()),
+        ("source", brand::REPOSITORY.to_string()),
+        ("support", brand::SUPPORT_EMAIL.to_string()),
+        (
+            "licence",
+            "QSL Team Source-Available License v1.0 (2026)".to_string(),
+        ),
+        (
+            "notices",
+            "THIRD_PARTY_NOTICES.md (bundled MIT-licensed skill material)".to_string(),
+        ),
+    ] {
+        out!("  {} {}", format!("{k:<9}").dimmed(), v);
+    }
+    out!();
+    out!("  {}", brand::COPYRIGHT.dimmed());
     out!();
 }
 
@@ -313,7 +392,9 @@ pub fn render_tool_call(name: &str, args: &Value, note: Option<&str>) {
     if quiet() {
         return;
     }
-    let mut lines = vec![header(&format!("ACTION: {name}")).bold().cyan().to_string()];
+    let mut lines = vec![crate::brand::accent(&header(&format!("ACTION: {name}")))
+        .bold()
+        .to_string()];
     for (k, v) in format_tool_details(name, args) {
         let first = v.lines().next().unwrap_or("").to_string();
         let more = v.lines().count().saturating_sub(1);
@@ -331,7 +412,7 @@ pub fn render_tool_call(name: &str, args: &Value, note: Option<&str>) {
     if let Some(n) = note {
         lines.push(format!("│  {}", n.yellow()));
     }
-    lines.push(footer().bold().cyan().to_string());
+    lines.push(crate::brand::accent(&footer()).bold().to_string());
     out!("{}", lines.join("\n"));
 }
 
@@ -463,7 +544,7 @@ pub fn render_skills_table(skills: &[(String, String, Vec<String>)]) {
     };
     let mut lines = vec![
         String::new(),
-        bar("╭", "┬", "╮").bright_magenta().to_string(),
+        crate::brand::accent(&bar("╭", "┬", "╮")).to_string(),
     ];
     lines.push(format!(
         "│ {} │ {} │ {} │",
@@ -471,16 +552,16 @@ pub fn render_skills_table(skills: &[(String, String, Vec<String>)]) {
         pad("Tags", tag_w).bold().white(),
         pad("Description", desc_w).bold().white()
     ));
-    lines.push(bar("├", "┼", "┤").bright_magenta().to_string());
+    lines.push(crate::brand::accent(&bar("├", "┼", "┤")).to_string());
     for (name, desc, tags) in skills {
         lines.push(format!(
             "│ {} │ {} │ {} │",
-            pad(name, name_w).cyan().bold(),
+            pad(name, name_w).bold(),
             pad(&tags.join(", "), tag_w).dimmed(),
             pad(desc, desc_w)
         ));
     }
-    lines.push(bar("╰", "┴", "╯").bright_magenta().to_string());
+    lines.push(crate::brand::accent(&bar("╰", "┴", "╯")).to_string());
     out!("{}\n", lines.join("\n"));
 }
 
@@ -509,7 +590,7 @@ pub fn plain(msg: &str) {
     out!("{msg}");
 }
 pub fn section(title: &str) {
-    out!("\n{}", title.bold().cyan());
+    out!("\n{}", crate::brand::accent(title).bold());
 }
 
 pub fn status_line(parts: &[String]) {

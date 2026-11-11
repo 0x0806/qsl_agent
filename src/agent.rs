@@ -263,7 +263,8 @@ impl Agent {
             {
                 s.push_str(&format!(
                     "\n### Active Skill: {} (follow this procedure)\n{}\n",
-                    skill.name, skill.instructions
+                    skill.name,
+                    skill.pinned_text()
                 ));
             }
         }
@@ -855,7 +856,15 @@ impl Agent {
                     &crate::security::redact_secrets(&out),
                     dt.as_millis(),
                 );
-                smart_clip(&out, self.config.max_tool_output_chars)
+                if self.config.is_remote() {
+                    // Hosted engine: mask common secrets before the model (and its vendor) sees them.
+                    smart_clip(
+                        &crate::security::redact_secrets(&out),
+                        self.config.max_tool_output_chars,
+                    )
+                } else {
+                    smart_clip(&out, self.config.max_tool_output_chars)
+                }
             }
             Err(e) => {
                 ui::render_tool_error(name, &e);

@@ -99,6 +99,14 @@ pub struct Config {
     /// Bearer token for remote OpenAI-compatible endpoints (or `QSL_API_KEY`).
     pub api_key: Option<String>,
     pub api: ApiStyle,
+    /// Hosted engines (by host) whose data-sharing disclaimer the user accepted.
+    pub cloud_consent: Vec<String>,
+    /// The key as written in the config file; env and flag keys are never saved.
+    #[serde(skip)]
+    pub file_api_key: Option<String>,
+    /// Hosts approved for this run only (`--accept-cloud`); never saved.
+    #[serde(skip)]
+    pub session_consent: Vec<String>,
     /// Stream tokens to the terminal as they are generated.
     pub stream: bool,
     /// Display `<think>` / reasoning output from reasoning models.
@@ -144,6 +152,9 @@ impl Default for Config {
             command_timeout_secs: 60,
             approval_mode: None,
             api_key: None,
+            cloud_consent: Vec::new(),
+            file_api_key: None,
+            session_consent: Vec::new(),
             api: ApiStyle::Auto,
             stream: true,
             show_reasoning: true,
@@ -217,6 +228,7 @@ impl Config {
             }
         };
 
+        cfg.file_api_key = cfg.api_key.clone();
         cfg.apply_env();
         cfg.normalize();
         Loaded {
@@ -250,7 +262,7 @@ impl Config {
     /// Clamp values into sane ranges and resolve derived paths.
     pub fn normalize(&mut self) {
         self.provider = self.provider.trim().to_lowercase();
-        if !["ollama", "lmstudio", "custom"].contains(&self.provider.as_str()) {
+        if !crate::frontier::ALL_PROVIDERS.contains(&self.provider.as_str()) {
             self.provider = "ollama".into();
         }
         self.temperature = self.temperature.clamp(0.0, 2.0);
@@ -309,6 +321,51 @@ impl Config {
         })
     }
 
+    /// Configured server URL for the active provider.
+    pub fn base_url(&self) -> String {
+        match self.provider.as_str() {
+            "lmstudio" => self.lmstudio_url.clone(),
+            "custom" => self
+                .custom_url
+                .clone()
+                .unwrap_or_else(|| self.ollama_url.clone()),
+            p => match crate::frontier::preset(p) {
+                Some(preset) => preset.base_url.to_string(),
+                None => self.ollama_url.clone(),
+            },
+        }
+    }
+
+    /// Host that receives the data.
+    pub fn endpoint_host(&self) -> String {
+        crate::frontier::host_of(&self.base_url())
+    }
+
+    /// True when prompts are sent to a machine that is not local or on the LAN.
+    pub fn is_remote(&self) -> bool {
+        !crate::frontier::is_local_host(&self.endpoint_host())
+    }
+
+    /// True when the user has accepted the data-sharing disclaimer for this host.
+    pub fn has_cloud_consent(&self) -> bool {
+        let host = self.endpoint_host();
+        !self.is_remote()
+            || self.cloud_consent.contains(&host)
+            || self.session_consent.contains(&host)
+    }
+
+    /// API key for the active provider: explicit key, else the preset's env var.
+    pub fn resolved_api_key(&self) -> Option<String> {
+        self.api_key
+            .clone()
+            .filter(|k| !k.trim().is_empty())
+            .or_else(|| {
+                crate::frontier::preset(&self.provider)
+                    .and_then(|p| std::env::var(p.key_env).ok())
+                    .filter(|k| !k.trim().is_empty())
+            })
+    }
+
     pub fn api_style(&self) -> ApiStyle {
         match self.api {
             ApiStyle::Auto if self.provider == "ollama" => ApiStyle::Ollama,
@@ -319,14 +376,7 @@ impl Config {
 
     /// Base URL of the server root (no `/v1`), used for Ollama native calls.
     pub fn server_root(&self) -> String {
-        let url = match self.provider.as_str() {
-            "lmstudio" => self.lmstudio_url.clone(),
-            "custom" => self
-                .custom_url
-                .clone()
-                .unwrap_or_else(|| self.ollama_url.clone()),
-            _ => self.ollama_url.clone(),
-        };
+        let url = self.base_url();
         let url = url.trim().trim_end_matches('/').to_string();
         let url = url.trim_end_matches("/chat/completions").to_string();
         match url.rsplit_once('/') {
@@ -339,18 +389,11 @@ impl Config {
 
     /// OpenAI-compatible base URL ending in a version segment (e.g. `/v1`).
     pub fn openai_base(&self) -> String {
-        let url = match self.provider.as_str() {
-            "lmstudio" => self.lmstudio_url.clone(),
-            "custom" => self
-                .custom_url
-                .clone()
-                .unwrap_or_else(|| self.ollama_url.clone()),
-            _ => self.ollama_url.clone(),
-        };
+        let url = self.base_url();
         let url = url.trim().trim_end_matches('/');
         let url = url.trim_end_matches("/chat/completions");
         let last = url.rsplit('/').next().unwrap_or("");
-        if is_version_segment(last) {
+        if is_version_segment(last) || last == "openai" {
             url.to_string()
         } else {
             format!("{url}/v1")
@@ -365,7 +408,9 @@ impl Config {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let body = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
+        let mut persisted = self.clone();
+        persisted.api_key = self.file_api_key.clone();
+        let body = toml::to_string_pretty(&persisted).map_err(std::io::Error::other)?;
         let header = "# =============================================================================\n\
                       # QSL Agent Configuration (v0.5)\n\
                       # Developed by Quantum Secular Labs (https://quantumseclabs.com/)\n\
@@ -565,5 +610,61 @@ command_timeout_secs = 30
         let loaded = Config::load(Some(&path));
         assert!(loaded.warning.is_some());
         assert!(path.with_extension("toml.bak").exists());
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn hosted_presets_are_remote_and_need_consent() {
+        let mut c = Config::default();
+        assert!(!c.is_remote() && c.has_cloud_consent());
+        c.provider = "openai".into();
+        assert!(c.is_remote() && !c.has_cloud_consent());
+        assert_eq!(c.endpoint_host(), "api.openai.com");
+        c.cloud_consent.push("api.openai.com".into());
+        assert!(c.has_cloud_consent());
+        c.cloud_consent.clear();
+        c.session_consent.push("api.openai.com".into());
+        assert!(c.has_cloud_consent());
+        c.provider = "custom".into();
+        c.custom_url = Some("https://llm.example.com/v1".into());
+        assert!(c.is_remote());
+        c.custom_url = Some("http://192.168.1.20:8000/v1".into());
+        assert!(!c.is_remote());
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn preset_urls_and_keys() {
+        let mut c = Config::default();
+        c.provider = "gemini".into();
+        assert_eq!(
+            c.openai_base(),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        c.provider = "openai".into();
+        assert_eq!(c.openai_base(), "https://api.openai.com/v1");
+        c.api_key = Some("explicit".into());
+        assert_eq!(c.resolved_api_key().as_deref(), Some("explicit"));
+        c.normalize();
+        assert_eq!(
+            c.provider, "openai",
+            "hosted provider names survive normalize"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn env_and_flag_keys_are_never_saved() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("config.toml");
+        let mut c = Config::default();
+        c.api_key = Some("sk-from-env".into());
+        c.file_api_key = None;
+        c.cloud_consent.push("api.openai.com".into());
+        c.session_consent.push("example.com".into());
+        c.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("sk-from-env") && !text.contains("example.com"));
+        assert!(text.contains("api.openai.com"));
     }
 }

@@ -65,6 +65,12 @@ impl Env {
                 .env_remove("QSL_MODEL")
                 .env_remove("QSL_PROVIDER")
                 .env_remove("QSL_ENDPOINT")
+                .env_remove("QSL_ACCEPT_CLOUD")
+                .env_remove("QSL_API_KEY")
+                .env_remove("OPENAI_API_KEY")
+                .env_remove("ANTHROPIC_API_KEY")
+                .env_remove("GEMINI_API_KEY")
+                .env_remove("OPENROUTER_API_KEY")
                 .env("NO_COLOR", "1")
                 .current_dir(&home)
                 .stdin(Stdio::null())
@@ -188,6 +194,15 @@ async fn shell_commands_execute() {
     both_protocols(|env| async move {
         let v = env.json("[mock:shell]", &[]).await;
         assert_eq!(reply(&v), "SHELL=true");
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bundled_audit_skill_is_readable_in_pages_and_files() {
+    both_protocols(|env| async move {
+        let v = env.json("[mock:skill]", &[]).await;
+        assert_eq!(reply(&v), "SKILL_OK=true");
     })
     .await;
 }
@@ -446,4 +461,40 @@ async fn long_sessions_compact_but_keep_current_request() {
             .contains("Summary of Earlier Conversation"),
         "summary restored on resume"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hosted_engines_are_refused_without_consent_and_send_nothing() {
+    let env = Env::new().await;
+    env.configure("openai", "");
+    // A hosted preset with a key but no consent: exits 2 before any request.
+    let out = env
+        .run(&[
+            "-q",
+            "--provider",
+            "openai",
+            "--api-key",
+            "sk-test",
+            "hello",
+        ])
+        .await;
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("hosted") && err.contains("--accept-cloud"),
+        "{err}"
+    );
+    // A custom remote endpoint is treated the same way.
+    let out = env
+        .run(&["-q", "-e", "https://example.com/v1", "hello"])
+        .await;
+    assert_eq!(out.status.code(), Some(2));
+    // Consent given but no key: still refused, naming the variable.
+    let out = env
+        .run(&["-q", "--provider", "anthropic", "--accept-cloud", "hello"])
+        .await;
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("ANTHROPIC_API_KEY"));
+    // The local mock server never saw a request from any of these.
+    assert_eq!(env.state.requests.lock().unwrap().len(), 0);
 }

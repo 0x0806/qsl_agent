@@ -54,6 +54,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/tools", "List available tools"),
     ("/cd", "<dir>  Change the working directory"),
     ("/config", "Show the active configuration"),
+    ("/about", "Company, licence and version information"),
     ("/exit", "Exit QSL Agent (alias /quit)"),
     ("/quit", "Exit QSL Agent"),
 ];
@@ -87,7 +88,7 @@ impl Completer for ReplHelper {
                     .iter()
                     .map(|s| s.to_string())
                     .collect(),
-                "/provider" => ["ollama", "lmstudio", "custom"]
+                "/provider" => crate::frontier::ALL_PROVIDERS
                     .iter()
                     .map(|s| s.to_string())
                     .collect(),
@@ -216,7 +217,7 @@ pub async fn run_repl(mut agent: Agent) {
     }
 
     loop {
-        let prompt = format!("{} ", "qsl-agent >".bold().bright_cyan());
+        let prompt = format!("{} ", crate::brand::accent("qsl-agent >").bold());
         let line = match rl.readline(&prompt) {
             Ok(l) => l,
             Err(ReadlineError::Interrupted) => {
@@ -299,6 +300,10 @@ fn print_banner(agent: &Agent, resumed: usize) {
         .unwrap_or_else(|e| e.into_inner())
         .skills
         .len();
+    let remote_host = agent
+        .config
+        .is_remote()
+        .then(|| agent.config.endpoint_host());
     ui::banner(&ui::BannerInfo {
         provider: &agent.config.provider,
         endpoint: &endpoint,
@@ -308,6 +313,7 @@ fn print_banner(agent: &Agent, resumed: usize) {
         skills,
         tools: agent.tool_specs(0).len(),
         vault: &vault,
+        remote_host: remote_host.as_deref(),
         session: &agent.meta.id,
         resumed,
     });
@@ -502,21 +508,18 @@ async fn handle_command(input: &str, agent: &mut Agent) -> bool {
             );
             return true;
         }
+        "/about" => ui::about(),
         "/help" | "/?" => {
             ui::plain(&format!(
-                "\n{}",
-                format!(
-                    "QSL AGENT (v{}) — Quantum Secular Labs (https://quantumseclabs.com/)",
-                    ui::VERSION
-                )
-                .bold()
-                .green()
+                "\n{} {}",
+                crate::brand::ink("QSL Agent"),
+                crate::brand::accent(&format!("v{}", ui::VERSION))
             ));
             ui::plain(&format!(
                 "{}\n",
-                "100% Local Inference | Obsidian PKM Cortex | Zero Cloud Dependency".dimmed()
+                format!("{} by {}", crate::brand::TAGLINE, crate::brand::COMPANY).dimmed()
             ));
-            ui::plain(&"COMMANDS".bold().cyan().to_string());
+            ui::plain(&crate::brand::accent("COMMANDS").bold().to_string());
             for (c, d) in COMMANDS
                 .iter()
                 .filter(|(c, _)| !matches!(*c, "/quit" | "/clear"))
@@ -591,40 +594,14 @@ async fn handle_command(input: &str, agent: &mut Agent) -> bool {
         "/provider" => {
             let mut parts = arg.split_whitespace();
             match parts.next().map(str::to_lowercase) {
-                Some(p) if ["ollama", "lmstudio", "custom"].contains(&p.as_str()) => {
-                    agent.config.provider = p.clone();
-                    if let Some(url) = parts.next() {
-                        match p.as_str() {
-                            "ollama" => agent.config.ollama_url = url.into(),
-                            "lmstudio" => agent.config.lmstudio_url = url.into(),
-                            _ => agent.config.custom_url = Some(url.into()),
-                        }
-                    }
-                    agent.rebuild_client().await;
-                    agent.persist_config();
-                    ui::info(&format!(
-                        "Switched engine to '{}' ({})",
-                        p.bold(),
-                        agent.client.endpoint().cyan()
-                    ));
-                    if agent
-                        .client
-                        .list_models()
-                        .await
-                        .map(|m| !m.contains(&agent.config.model))
-                        .unwrap_or(true)
-                    {
-                        ui::warn("The current model may not exist on this engine; use /models and /model <name>.");
-                    }
+                Some(p) if crate::frontier::ALL_PROVIDERS.contains(&p.as_str()) => {
+                    switch_provider(agent, &p, parts.next()).await;
                 }
                 Some(other) => ui::warn(&format!(
-                    "Unknown engine '{other}'. Supported: ollama, lmstudio, custom"
+                    "Unknown engine '{other}'. Supported: {}",
+                    crate::frontier::ALL_PROVIDERS.join(", ")
                 )),
-                None => ui::plain(&format!(
-                    "Current engine: {} ({})",
-                    agent.config.provider.yellow(),
-                    agent.client.endpoint().cyan()
-                )),
+                None => show_providers(agent),
             }
         }
         "/approval" | "/mode" => match ApprovalMode::parse(&arg) {
@@ -1014,6 +991,125 @@ async fn handle_command(input: &str, agent: &mut Agent) -> bool {
         }
     }
     false
+}
+
+fn show_providers(agent: &Agent) {
+    let host = agent.config.endpoint_host();
+    ui::plain(&format!(
+        "Current engine: {} ({})\n  {}",
+        agent.config.provider.yellow(),
+        agent.client.endpoint().cyan(),
+        if agent.config.is_remote() {
+            format!("[hosted: data is sent to {host}]")
+                .yellow()
+                .bold()
+                .to_string()
+        } else {
+            "[local: data stays on this machine]".dimmed().to_string()
+        }
+    ));
+    ui::plain(&format!(
+        "\n{}",
+        "Local engines (your data stays on your machine)".bold()
+    ));
+    ui::plain(
+        "  ollama | lmstudio | custom <url>   (custom may point at a local or remote server)",
+    );
+    ui::plain(&format!(
+        "\n{}",
+        "Hosted frontier models (your data is sent to the company named; you must accept a notice)"
+            .bold()
+    ));
+    for p in crate::frontier::PRESETS {
+        let key = if std::env::var(p.key_env).is_ok_and(|k| !k.trim().is_empty()) {
+            "key found".green().to_string()
+        } else {
+            format!("export {} first", p.key_env).dimmed().to_string()
+        };
+        ui::plain(&format!(
+            "  {:<11} {} - {}  [{}]",
+            p.id.bold(),
+            p.product,
+            p.company,
+            key
+        ));
+    }
+    ui::plain("\nSwitch with /provider <name>, then /models and /model <name>. Back to local: /provider ollama");
+}
+
+/// Switch engine. A hosted target needs an API key and an explicit "yes" to the
+/// data-sharing notice; the acceptance is remembered per host in the config.
+async fn switch_provider(agent: &mut Agent, id: &str, url: Option<&str>) {
+    let previous = agent.config.clone();
+    agent.config.provider = id.to_string();
+    if let Some(url) = url {
+        match id {
+            "ollama" => agent.config.ollama_url = url.into(),
+            "lmstudio" => agent.config.lmstudio_url = url.into(),
+            "custom" => agent.config.custom_url = Some(url.into()),
+            _ => ui::warn("Hosted presets have a fixed address; the URL was ignored (use `custom` for others)."),
+        }
+    }
+    let preset = crate::frontier::preset(id);
+    if agent.config.is_remote() {
+        if preset.is_some() && agent.config.resolved_api_key().is_none() {
+            let env = preset.map_or("QSL_API_KEY", |p| p.key_env);
+            ui::warn(&format!(
+                "No API key found. Exit, run `export {env}=...` (keys are read from the environment and never saved), and start again."
+            ));
+            agent.config = previous;
+            return;
+        }
+        if !agent.config.has_cloud_consent() {
+            let host = agent.config.endpoint_host();
+            let (company, product, note) = preset.map_or(
+                (
+                    host.clone(),
+                    "a custom remote endpoint".to_string(),
+                    String::new(),
+                ),
+                |p| {
+                    (
+                        p.company.to_string(),
+                        p.product.to_string(),
+                        p.note.to_string(),
+                    )
+                },
+            );
+            let lines = crate::frontier::disclaimer(&company, &host, &product, &note);
+            if !ui::cloud_notice(&lines) {
+                agent.config = previous;
+                ui::info("Cancelled. Nothing was sent; the engine was not changed.");
+                return;
+            }
+            agent.config.cloud_consent.push(host);
+        }
+    }
+    agent.rebuild_client().await;
+    agent.persist_config();
+    if agent.config.is_remote() {
+        ui::warn(&format!(
+            "Hosted engine active: prompts, file contents and command output now go to {}.",
+            agent.config.endpoint_host()
+        ));
+        ui::note("Pick a model with /models and /model <name>. Set context_size in the config if the model's window is larger than the assumed one.");
+    } else {
+        ui::info("Local engine active: your data stays on this machine.");
+    }
+    ui::info(&format!(
+        "Switched engine to '{}' ({})",
+        id.bold(),
+        agent.client.endpoint().cyan()
+    ));
+    if agent
+        .client
+        .list_models()
+        .await
+        .map(|m| !m.contains(&agent.config.model))
+        .unwrap_or(true)
+    {
+        ui::warn("The current model may not exist on this engine; use /models and /model <name>.");
+    }
 }
 
 #[cfg(test)]

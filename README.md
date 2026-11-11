@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Rust](https://img.shields.io/badge/Rust-1.89%2B-orange?style=for-the-badge&logo=rust)
-![Release](https://img.shields.io/badge/Release-v0.5.1-brightgreen?style=for-the-badge)
+![Release](https://img.shields.io/badge/Release-v0.6.0-brightgreen?style=for-the-badge)
 ![Architecture](https://img.shields.io/badge/Inference-100%25%20Local-purple?style=for-the-badge)
 ![Security](https://img.shields.io/badge/Security-3--Tier%20Guard-red?style=for-the-badge)
 ![PKM](https://img.shields.io/badge/Memory-Obsidian%20Native-blueviolet?style=for-the-badge)
@@ -11,7 +11,7 @@
 
 **A fast, local-first autonomous AI agent, built natively in Rust.**
 
-It runs on your own model (Ollama, LM Studio, llama.cpp, vLLM, or any OpenAI-compatible server), acts on your machine through sandboxed tools, and keeps its long-term memory as plain Markdown in your Obsidian vault.
+It runs on your own model (Ollama, LM Studio, llama.cpp, vLLM, or any OpenAI-compatible server) and, if you choose and accept a data-sharing notice, on hosted frontier models (OpenAI, Anthropic, Google, OpenRouter). It acts on your machine through guarded tools (approval gates and a SecurityGuard), and keeps its long-term memory as plain Markdown in your Obsidian vault.
 
 Developed by **[Quantum Secular Labs](https://quantumseclabs.com/)** · [Changelog](CHANGELOG.md) · [Build & test kit](build-test/README.md)
 
@@ -48,7 +48,7 @@ Developed by **[Quantum Secular Labs](https://quantumseclabs.com/)** · [Changel
 
 | | |
 |:--|:--|
-| **Local and private** | Prompts and files go only to the inference server you configure. No accounts, no telemetry. |
+| **Local and private** | Prompts and files go only to the inference server you configure, which is local unless you choose a hosted frontier model and accept the data-sharing notice. No accounts, no telemetry. |
 | **One small binary** | ~10 MB stripped, ~2 ms cold start, no Python runtime or virtualenv. |
 | **Works with real local models** | Native tool calling where the model supports it, and automatic fallback to the Hermes `<tool_call>` text protocol where it doesn't. Malformed arguments are repaired and common argument-name mistakes accepted. |
 | **Uses the context it needs** | Auto-sizes the context window for each model *and* machine, with a 32K minimum for agentic work. Older turns are summarised when the window fills up. |
@@ -100,7 +100,7 @@ Both installers download the prebuilt binary for your platform from the latest G
 
 | Linux / macOS (`bash -s -- …`) | Windows (`-…`) | Effect |
 |:--|:--|:--|
-| `--version v0.5.0` | `-Version v0.5.0` | Install a specific release |
+| `--version v0.6.0` | `-Version v0.6.0` | Install a specific release |
 | `--user` | `-User` | Current user only (`~/.local/bin`, `%LOCALAPPDATA%\Programs`) |
 | `--prefix DIR` | `-Prefix DIR` | Install into a custom directory |
 | `--from-source` | `-FromSource` | Build with cargo instead of downloading |
@@ -171,17 +171,29 @@ qsl-agent -r 2            # resume session #2 from /sessions
 ```
 
 ```text
-╭──────────────────────────────────────────────────────────────────────────────╮
-│ QSL AGENT — AUTONOMOUS LOCAL INTELLIGENCE (v0.5.0)                           │
-│ [100% LOCAL]  [ZERO CLOUD]  [OBSIDIAN CORTEX]  [SECURITY GUARD]              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ Engine:    ollama (http://127.0.0.1:11434/api/chat)                          │
-│ Model:     qwen2.5-coder:7b                                                  │
-│ Context:   32768 tokens (auto)                                               │
-│ Approval:  Ask [Interactive Review: y/a/n/d]                                 │
-│ Skills:    31 skills | 22 tools                                              │
-│ ...                                                                          │
-╰──────────────────────────────────────────────────────────────────────────────╯
+                             QSL Agent v0.6.0
+      ▄▄██     ▄▄▄▄          Local-first autonomous AI agent
+   ▄████▀  ▄▄████████▄       by Quantum Secular Labs · https://quantumseclabs.com
+  ▄███▀    ▀▀   ▀▀▀████▄
+  ████              ▀████    engine    ollama (http://127.0.0.1:11434/api/chat)
+  ████               ▀███▄   model     qwen2.5-coder:7b · Small (<=9B)
+  ▀███▄               ████   context   32768 tokens (assumed (server does not report it))
+   ████▄              ████   approval  Ask [Interactive Review: y/a/n/d]
+    ▀████▄▄▄   ▄▄    ▄███▀   skills    32 skills · 22 tools
+      ▀████████▀▀  ▄████▀    session   20261111-093000-a1b2
+         ▀▀▀▀     ██▀▀       vault     /home/you/Documents/Obsidian_Vault
+
+
+  ──────────────────────────────────────────────────────────────────────────────────────
+  /help commands · Ctrl+C stops a turn · \ or """ for multi-line · /about
+  © 2026 Quantum Secular Labs. All rights reserved.
+
+```
+
+![QSL Agent start-up screen: the split-ring QSL mark in half-block art beside engine, model, context, approval and skills](docs/screenshots/cli-banner.png)
+
+The mark is the QSL "Split state" ring in two colours: the terminal's own foreground for one half and the QSL accent orange (`#ff8a3d`; 256-colour and 16-colour fallbacks) for the other. The logo is never printed in `--json`, `--quiet`, piped or `NO_COLOR` output, and terminals narrower than 74 columns get a compact header. `/about` shows company, licence and notice information.
+
 qsl-agent > find every TODO in this repo and group them by file
 ```
 
@@ -327,7 +339,27 @@ Skills are Markdown playbooks (`SKILL.md` with YAML frontmatter). Only their nam
 
 Skills are loaded from, in priority order: `./.qsl/skills/`, `./skills/`, `~/.config/qsl-agent/skills/`, and `<vault>/QSL_Agent/Skills/`. After solving a reusable workflow the agent can save it with `skill_create`.
 
-**31 built-in skills:** `api-design`, `benchmark`, `code-review`, `codebase-inspection`, `data-analysis`, `data-transform`, `database-sql`, `debug`, `dependency-update`, `doc-writer`, `docker-container`, `explain-code`, `file-organizer`, `git-workflow`, `incident-response`, `markdown-docs`, `migration`, `network-diagnostics`, `obsidian-vault-manager`, `python-env`, `refactor`, `rust-cargo`, `security-audit`, `shell-script`, `software-development`, `sql-query`, `system-ops`, `test-writer`, `text-processing`, `web-research`, `yaml-toml-config`.
+**32 built-in skills:** `api-design`, `benchmark`, `code-review`, `codebase-inspection`, `data-analysis`, `data-transform`, `database-sql`, `debug`, `dependency-update`, `doc-writer`, `docker-container`, `explain-code`, `file-organizer`, `git-workflow`, `incident-response`, `markdown-docs`, `migration`, `network-diagnostics`, `obsidian-vault-manager`, `python-env`, `qsl-security-audit`, `refactor`, `rust-cargo`, `security-audit`, `shell-script`, `software-development`, `sql-query`, `system-ops`, `test-writer`, `text-processing`, `web-research`, `yaml-toml-config`.
+
+### QSL Security Audit
+
+`qsl-security-audit` is a bundled, multi-file skill for source-first security audits. It runs in two modes: *guidance* (answer a security question or review one area) and *full audit* (six phases: reconnaissance, coverage-led hunting, adversarial candidate validation, structured `findings.json`, independent record verification, and a target-neutral report). Findings are `confirmed` (complete source trace and a bounded observed result), `needs_validation` (an exact unresolved fact, no severity) or `rejected`. Two zero-dependency Node.js validators check `coverage-ledger.json` and `findings.json` against a JSON schema.
+
+```text
+qsl-agent "security audit this repository, output to ~/qsl-audits/myproject"
+```
+
+How it maps onto QSL Agent:
+
+- The skill is seeded to `<vault>/QSL_Agent/Skills/qsl-security-audit/` (`SKILL.md` plus 21 companion files, including the licence text). `skill_read` pages long files (`part=N`) and reads companions with `file="HUNTING.md"`; a pinned skill (`/use`) is capped at 6,000 characters.
+- "Delegated agents" are `delegate_task` calls. Sub-agents start with a fresh context, run one at a time and cannot delegate further.
+- Full audit mode needs **Node.js** for the validators. Without it, guidance mode still works.
+- **QSL Agent ships no OS-level sandbox.** The skill's safety rules therefore apply as written: target code is not executed unless you confirm an external sandbox that meets every control, and such leads are reported as `needs_validation`. Source reading is always allowed.
+- Models with a small context window should use the `quick` profile or a scoped run, and load one companion file at a time.
+- The skill-reading path is tested end to end against a scripted model; a full audit has **not yet been validated with a real local model**, so treat first audits as trials.
+- Findings are produced by your local model and must be reviewed by a person before you act on them. This is a decision aid, not a certification or a compliance assessment.
+
+The methodology derives from an MIT-licensed upstream skill; its licence and provenance are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ### Project instructions
 
@@ -341,7 +373,8 @@ If the working directory contains `AGENTS.md`, `QSL.md`, `.qsl/instructions.md` 
 |:--|:--|:--|
 | `ollama` *(default)* | `http://127.0.0.1:11434` | Native `/api/chat`: applies `num_ctx`, streams `thinking` |
 | `lmstudio` | `http://127.0.0.1:1234/v1` | OpenAI-compatible SSE |
-| `custom` | `-e URL` / `custom_url` | OpenAI-compatible SSE: llama.cpp, vLLM, LocalAI, OpenRouter, … |
+| `custom` | `-e URL` / `custom_url` | OpenAI-compatible SSE: llama.cpp, vLLM, LocalAI, … (a remote URL needs the data-sharing consent below) |
+| `openai` · `anthropic` · `gemini` · `openrouter` | built-in preset | Hosted frontier models, see [Hosted frontier models](#hosted-frontier-models-optional) |
 
 ```bash
 qsl-agent -p lmstudio
@@ -359,6 +392,48 @@ Recommended models: tool-capable instruction models such as **Qwen2.5/Qwen3 Code
 
 ---
 
+## Hosted frontier models (optional)
+
+QSL Agent is local-first, and it stays that way unless you switch. You can point it at a hosted frontier model with one command, and switch back just as easily:
+
+```text
+qsl-agent > /provider                 # list local engines and hosted presets
+qsl-agent > /provider anthropic       # shows the data-sharing notice, asks for "yes"
+qsl-agent > /models                   # then /model <name>
+qsl-agent > /provider ollama          # back to local: data stays on your machine
+```
+
+| Preset | Service | Key variable | Endpoint |
+|:--|:--|:--|:--|
+| `openai` | ChatGPT models (OpenAI API) | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
+| `anthropic` | Claude models (Anthropic API, OpenAI-compatible endpoint) | `ANTHROPIC_API_KEY` | `https://api.anthropic.com/v1` |
+| `gemini` | Gemini models (Google AI API, OpenAI-compatible endpoint) | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| `openrouter` | Many vendors' models through OpenRouter | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
+
+**Your data leaves your machine.** While a hosted engine is selected, what you type, the contents of files the agent reads, command output and tool results are sent over the internet to that company, under its terms, privacy policy and retention rules, which Quantum Secular Labs does not control. Usage may be billed to your account with them.
+
+How QSL Agent handles that:
+
+- **Explicit consent, per service.** Switching shows a notice naming the company and host and needs you to type `yes`. The acceptance is remembered per host in `cloud_consent` in your config. Until it exists, the client refuses to send any request.
+- **Headless runs and the HTTP API** (`-q`, `--json`, `--serve`) cannot ask, so they exit with code 2 unless you pass `--accept-cloud` (or set `QSL_ACCEPT_CLOUD=1`), which applies to that run only and is never saved.
+- **Any non-local endpoint counts,** including `custom` URLs and `-e`. Loopback, private LAN and `.local` addresses count as local.
+- **Keys come from the environment** (`OPENAI_API_KEY` and the others, or `QSL_API_KEY`). Keys from the environment or `--api-key` are never written to the config file.
+- **Secrets are masked in tool output before it is sent to a hosted model** (private keys and common API tokens). Masking is best effort. It does not cover what you type or the contents of files you ask the agent to quote.
+- The banner shows `hosted  data is sent to <host>` whenever a hosted engine is active.
+
+What the vendors say, from their published documentation (checked 2026-11-11; these change, so read the current terms):
+
+| Service | Training on API data | Retention | Source |
+|:--|:--|:--|:--|
+| OpenAI | Not used to train models unless you opt in | Abuse-monitoring logs up to 30 days by default; zero data retention needs approval | [Data controls](https://developers.openai.com/api/docs/guides/your-data) |
+| Anthropic | Commercial API data not used for training by default | Deleted within 30 days; longer if flagged for policy violations or by agreement | [Retention](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data), [Training](https://privacy.claude.com/en/articles/7996868-is-my-data-used-for-model-training) |
+| Google (Gemini API) | Unpaid quota: content may be used to improve products and reviewed by humans. Paid quota: not used to improve products | Paid: logged for a limited period to detect abuse | [Additional Terms](https://aistudio.google.com/docs/terms) |
+| OpenRouter | Depends on the underlying provider; account settings can restrict routing | Per provider | [Privacy and logging](https://openrouter.ai/docs/features/privacy-and-logging) |
+
+Notes: Anthropic and Google describe their OpenAI-compatible endpoints as a compatibility layer (Anthropic: primarily for testing and comparison, with some request fields ignored; Google: beta). Native tool calling and streaming are supported on both. Hosted models usually have much larger context windows than QSL Agent assumes when the server does not report one; set `context_size` in the config.
+
+---
+
 ## Reference: Command Line
 
 ```text
@@ -369,6 +444,7 @@ Usage: qsl-agent [OPTIONS] [PROMPT]...
   -m, --model <MODEL>             Model name
   -p, --provider <PROVIDER>       ollama | lmstudio | custom
   -e, --endpoint <URL>            OpenAI-compatible endpoint (implies --provider custom)
+      --accept-cloud              Accept, for this run only, that a hosted engine receives your data (QSL_ACCEPT_CLOUD=1)
       --api-key <KEY>             Bearer token for remote endpoints        [env: QSL_API_KEY]
   -v, --vault <PATH>              Obsidian vault
   -a, --approval <MODE>           ask | always | strict | yolo
@@ -416,7 +492,9 @@ Usage: qsl-agent [OPTIONS] [PROMPT]...
 | `/think on\|off` · `/stream on\|off` | Display toggles |
 | `/tools` | Tools and tool-calling mode |
 | `/cd <dir>` | Change the working directory |
+| `/provider` | `[name] [url]` List engines, or switch (hosted engines show a data-sharing notice) |
 | `/config` | Show the active configuration (secrets masked) |
+| `/about` | Company, licence and version information |
 | `/exit` (`/quit`) | Exit |
 
 ---
@@ -525,7 +603,9 @@ qsl_agent/
 │   ├── security.rs        Command tiers, path policy, secret redaction
 │   ├── approval.rs        Permission prompts and modes
 │   ├── memory.rs          Obsidian vault memory and journals
-│   ├── skills.rs          Skill loading and creation (+ skills_builtin.rs)
+│   ├── skills.rs          Skill loading, paging and creation (+ skills_builtin.rs, skills_bundle.rs)
+│   ├── skills_bundles/    Folder skills embedded in the binary (qsl-security-audit)
+│   ├── brand.rs           QSL mark (half-block art), palette and company facts
 │   ├── session.rs         Session persistence, search, export
 │   ├── checkpoint.rs      File backups for /rollback
 │   ├── ui.rs · cli.rs     Terminal UI, streaming renderer, REPL
@@ -534,8 +614,11 @@ qsl_agent/
 ├── tests/                 End-to-end tests + shared mock LLM
 ├── examples/mock_llm.rs   Standalone mock inference server
 ├── build-test/            Build, test, smoke and live-test scripts
+├── scripts/               gen_logo.py (terminal mark), capture_ui.py (real UI screenshots)
+├── docs/screenshots/      Screenshots captured from the real binary
 ├── systemd/               User service unit for the HTTP API
 ├── config.example.toml    Commented configuration template
+├── THIRD_PARTY_NOTICES.md Licence text for bundled third-party material
 └── CHANGELOG.md
 ```
 
@@ -553,10 +636,11 @@ qsl_agent/
 
 | Suite | Coverage |
 |:--|:--|
-| Unit tests (82) | Parsers, security rules, path policy, sizing, compaction, tools, config, UI rendering |
-| End-to-end tests (16) | The real binary against a mock server over both the OpenAI SSE and Ollama NDJSON protocols: tool round-trips, parallel calls, security tiers, text-protocol fallback, memory, sessions, compaction, HTTP API |
-| Smoke tests (20) | CLI flags, one-shot runs, stdin input, sessions, memory, HTTP auth |
-| PTY suite (25) | Banner, streaming, permission prompts, deny and rollback, Ctrl+C interruption, completion, multi-line input |
+| Unit tests (99) | Parsers, security rules, path policy, sizing, compaction, tools, config, UI rendering |
+| End-to-end tests (18) | The real binary against a mock server over both the OpenAI SSE and Ollama NDJSON protocols: tool round-trips, parallel calls, security tiers, text-protocol fallback, memory, sessions, compaction, HTTP API |
+| Skill validators (65) | The bundled security-audit validators' own test suite (`node --test`, needs Node.js) |
+| Smoke tests (22) | CLI flags, one-shot runs, stdin input, sessions, memory, HTTP auth |
+| PTY suite (33) | Banner, streaming, permission prompts, deny and rollback, Ctrl+C interruption, completion, multi-line input |
 
 All suites use a throwaway `HOME`, so they never touch your real config, vault or sessions. Logs go to `build-test/out/`. You can also run the mock server by hand to try the UI without a model:
 
@@ -599,10 +683,10 @@ No. 32K is the minimum for agentic work, and QSL uses more automatically when th
 File writes and edits: yes, with `/rollback`. Shell commands can't be undone, which is why risky ones always need your approval.
 
 **Can I use a cloud model?**
-Yes. Any OpenAI-compatible endpoint works (`-e URL` with `QSL_API_KEY`), but then your prompts leave your machine.
+Yes: `/provider openai|anthropic|gemini|openrouter`, or any OpenAI-compatible endpoint. Your prompts, file contents the agent reads and command output then leave your machine, and you must accept a notice naming the company first. See [Hosted frontier models](#hosted-frontier-models-optional).
 
 **My old v0.2 config / vault / skills?**
-All are picked up unchanged. Skills you edited are never overwritten by the built-in copies.
+All are picked up unchanged. Skills you edited are never overwritten by the built-in copies. The one exception is a bundled folder skill (`qsl-security-audit`) whose `SKILL.md` still has the `managed: qsl-agent` line: it is refreshed when the bundled version changes. Delete that line to keep your edits.
 
 ---
 

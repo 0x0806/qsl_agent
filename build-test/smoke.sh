@@ -13,6 +13,9 @@ note "mock LLM on :$MOCK_PORT, isolated HOME $QHOME"
 
 section "CLI basics"
 qsl --version | grep -q "qsl-agent" && ok "--version" || fail "--version"
+qsl --version | grep -q "Quantum Secular Labs" && ok "--version shows company and copyright" || fail "--version company"
+out=$(qsl "hello" 2>&1 || true)
+if echo "$out" | grep -q "Hello" && ! echo "$out" | grep -q "█"; then ok "no logo in non-terminal one-shot output"; else fail "logo printed in one-shot output: $out"; fi
 qsl --list-models | grep -q "mock-coder:7b" && ok "--list-models" || fail "--list-models"
 qsl --health-check >"$OUT_DIR/health.txt" 2>&1 && ok "--health-check exits 0" || fail "--health-check"
 qsl --show-config | grep -q "max_react_steps" && ok "--show-config" || fail "--show-config"

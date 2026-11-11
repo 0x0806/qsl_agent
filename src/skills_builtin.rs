@@ -60,6 +60,7 @@ Proactively inspect code and configurations for credential leakage, injection vu
 3. Review file permissions (`chmod`, `chown`) and check for improper file write targets.
 4. Check for outdated dependencies with known CVEs (`cargo audit`, `npm audit`).
 5. If a vulnerability is found, log it in Obsidian under `QSL_Agent/Security/` with severity, affected files, and remediation.
+6. For a full, multi-phase source audit (reconnaissance, coverage ledger, adversarial validation, schema-checked findings, report), load the `qsl-security-audit` skill with `skill_read` instead of improvising.
 "#,
             ),
             (

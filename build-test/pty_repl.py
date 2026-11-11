@@ -15,7 +15,7 @@ max_retries = 0
 """
 open(f"{home}/config.toml", "w").write(cfg)
 env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=f"{home}/.config", XDG_STATE_HOME=f"{home}/.local/state",
-           QSL_CONFIG=f"{home}/config.toml", TERM="xterm-256color", COLUMNS="100", LINES="40")
+           QSL_CONFIG=f"{home}/config.toml", OPENAI_API_KEY="sk-pty-test", TERM="xterm-256color", COLUMNS="100", LINES="40")
 env.pop("NO_COLOR", None)
 
 pid, fd = pty.fork()
@@ -66,9 +66,9 @@ def check(name, cond):
         print("   >>> saw:", repr(last_out[-600:]))
 
 out = expect(r"qsl-agent > $")
-check("banner shows title", "QSL AGENT — AUTONOMOUS LOCAL INTELLIGENCE" in out)
+check("banner shows title", "QSL Agent" in out and "Quantum Secular Labs" in out and "\u2588" in out)
 check("banner shows model", "mock-coder:7b" in out)
-check("banner shows session", "Session:" in out)
+check("banner shows session", "session" in out)
 
 send("ping\r")
 out = expect(r"qsl-agent > $")
@@ -113,6 +113,34 @@ buf = ""
 send("/skills\r")
 out = expect(r"qsl-agent > $")
 check("skills table", "Skill Name" in out and "rust-cargo" in out)
+check("bundled security-audit skill listed", "qsl-security-audit" in out)
+
+send("[mock:skill]\r")
+out = expect(r"qsl-agent > $")
+check("audit skill read via skill_read (page + companion file)", "SKILL_OK=true" in out and "[ACTION: skill_read]" in out)
+
+send("/provider\r")
+out = expect(r"qsl-agent > $")
+check("provider list names hosted vendors and the data warning", "OpenAI" in out and "Anthropic" in out and "Google" in out and "data is sent" in out)
+
+send("/provider openai\r")
+out = expect(r"anything else cancels >")
+check("hosted switch shows the data-sharing notice", "DATA LEAVES THIS MACHINE" in out and "OpenAI (api.openai.com)" in out and "terms, privacy policy" in out)
+send("n\r")
+out = expect(r"qsl-agent > $")
+check("declining keeps the local engine", "Cancelled" in out)
+
+send("/provider anthropic\r")
+out = expect(r"qsl-agent > $")
+check("hosted switch without a key is refused", "ANTHROPIC_API_KEY" in out)
+
+send("/about\r")
+out = expect(r"qsl-agent > $")
+check("about shows company and licence", "Quantum Secular Labs" in out and "Source-Available" in out and "THIRD_PARTY_NOTICES" in out)
+
+send("/skill qsl-security-audit\r")
+out = expect(r"qsl-agent > $")
+check("skill view works", "QSL Security Audit" in out)
 
 send("/sessions\r")
 out = expect(r"qsl-agent > $")

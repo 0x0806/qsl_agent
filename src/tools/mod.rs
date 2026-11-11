@@ -215,8 +215,13 @@ pub fn specs(opts: &SpecOptions) -> Vec<ToolSpec> {
         spec("skill_list", "List available skills (procedural playbooks) with descriptions.", json!({}), &[]),
         spec(
             "skill_read",
-            "Load the full step-by-step instructions of a skill. Do this before specialised tasks.",
-            json!({ "name": { "type": "string", "description": "Skill name, e.g. 'rust-cargo'" } }),
+            "Load the step-by-step instructions of a skill. Do this before specialised tasks. Long skills come in pages (part=2, 3, ...); \
+             skills with companion files list them, and you read one with file=\"NAME.md\".",
+            json!({
+                "name": { "type": "string", "description": "Skill name, e.g. 'rust-cargo'" },
+                "file": { "type": "string", "description": "Optional companion file inside the skill directory, e.g. 'HUNTING.md'" },
+                "part": { "type": "integer", "description": "Page number for long text (default 1)" }
+            }),
             &["name"],
         ),
         spec(
@@ -510,7 +515,17 @@ pub async fn execute(name: &str, args: &Value, ctx: &ToolCtx<'_>) -> Result<Stri
             let n = req_str(args, &["name", "skill_name", "skill"])?;
             let skills = ctx.skills.lock().unwrap_or_else(|e| e.into_inner());
             match skills.get(&n) {
-                Some(s) => Ok(format!("# Skill: {}\n\n{}", s.name, s.instructions)),
+                Some(s) => {
+                    let file = arg_str(args, &["file", "path"]);
+                    let part = args
+                        .get("part")
+                        .and_then(|p| {
+                            p.as_u64()
+                                .or_else(|| p.as_str().and_then(|x| x.parse().ok()))
+                        })
+                        .unwrap_or(1) as usize;
+                    s.read(file.as_deref(), part)
+                }
                 None => {
                     let near: Vec<String> = skills
                         .suggest(&n, 4)
@@ -748,6 +763,33 @@ pub mod tests_support {
                 .unwrap()
                 .contains("Skill: git-workflow")
         );
+        let audit = execute("skill_read", &json!({"name": "qsl-security-audit"}), &ctx)
+            .await
+            .unwrap();
+        assert!(audit.contains("part 1/") && audit.contains("HUNTING.md"));
+        let page2 = execute(
+            "skill_read",
+            &json!({"name": "qsl-security-audit", "part": "2"}),
+            &ctx,
+        )
+        .await
+        .unwrap();
+        assert!(page2.contains("part 2/"));
+        assert!(execute(
+            "skill_read",
+            &json!({"name": "qsl-security-audit", "file": "RECONNAISSANCE.md"}),
+            &ctx
+        )
+        .await
+        .unwrap()
+        .contains("RECONNAISSANCE.md"));
+        assert!(execute(
+            "skill_read",
+            &json!({"name": "qsl-security-audit", "file": "../../../etc/passwd"}),
+            &ctx
+        )
+        .await
+        .is_err());
         assert!(
             execute("skill_read", &json!({"name": "no-such-skill-xyz"}), &ctx)
                 .await

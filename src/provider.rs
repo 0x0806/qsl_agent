@@ -166,6 +166,8 @@ pub enum ProviderError {
     Http { status: u16, body: String },
     #[error("invalid response from engine: {0}")]
     Parse(String),
+    #[error("hosted engine {host} has not been approved: nothing was sent. Your data would leave this machine. Accept the data-sharing notice with /provider <name> in the REPL, or set QSL_ACCEPT_CLOUD=1 / --accept-cloud for non-interactive runs")]
+    NotApproved { host: String },
     #[error("interrupted")]
     Interrupted,
 }
@@ -280,6 +282,8 @@ pub struct LlmClient {
     server_root: String,
     openai_base: String,
     api_key: Option<String>,
+    /// Set when the endpoint is remote and the user has not accepted the notice: no request is sent.
+    blocked_host: Option<String>,
     max_retries: u32,
     /// Cleared when the engine rejects `tools`; we then use text tool calls.
     native_tools: AtomicBool,
@@ -303,10 +307,19 @@ impl LlmClient {
             api: cfg.api_style(),
             server_root: cfg.server_root(),
             openai_base: cfg.openai_base(),
-            api_key: cfg.api_key.clone().filter(|k| !k.trim().is_empty()),
+            api_key: cfg.resolved_api_key(),
+            blocked_host: (cfg.is_remote() && !cfg.has_cloud_consent())
+                .then(|| cfg.endpoint_host()),
             max_retries: cfg.max_retries,
             native_tools: AtomicBool::new(true),
             stream_usage: AtomicBool::new(true),
+        }
+    }
+
+    fn gate(&self) -> Result<(), ProviderError> {
+        match &self.blocked_host {
+            Some(h) => Err(ProviderError::NotApproved { host: h.clone() }),
+            None => Ok(()),
         }
     }
 
@@ -352,6 +365,7 @@ impl LlmClient {
     // -- discovery ----------------------------------------------------------
 
     pub async fn list_models(&self) -> Result<Vec<String>, ProviderError> {
+        self.gate()?;
         if self.provider == "ollama" || self.api == ApiStyle::Ollama {
             let url = format!("{}/api/tags", self.server_root);
             if let Ok(res) = self
@@ -434,7 +448,7 @@ impl LlmClient {
     /// context, KV-cache bytes per token, weight size and current residency.
     pub async fn model_meta(&self, model: &str) -> crate::sizing::ModelMeta {
         let mut meta = crate::sizing::ModelMeta::default();
-        if self.api != ApiStyle::Ollama || model.is_empty() {
+        if self.blocked_host.is_some() || self.api != ApiStyle::Ollama || model.is_empty() {
             return meta;
         }
         let url = format!("{}/api/show", self.server_root);
@@ -480,7 +494,7 @@ impl LlmClient {
     /// the server (not the request) decides it: llama.cpp `/props`,
     /// LM Studio `/api/v0/models`.
     pub async fn server_context(&self, model: &str) -> Option<u32> {
-        if self.api == ApiStyle::Ollama {
+        if self.blocked_host.is_some() || self.api == ApiStyle::Ollama {
             return None;
         }
         if let Some(v) = self.get_json(&format!("{}/props", self.server_root)).await {
@@ -509,6 +523,7 @@ impl LlmClient {
     }
 
     pub async fn health_check(&self) -> Result<String, ProviderError> {
+        self.gate()?;
         if self.api == ApiStyle::Ollama {
             let url = format!("{}/api/version", self.server_root);
             let res = self
@@ -539,6 +554,7 @@ impl LlmClient {
         interrupt: &Interrupt,
         on_delta: &mut (dyn FnMut(Delta<'_>) + Send),
     ) -> Result<ChatResponse, ProviderError> {
+        self.gate()?;
         let mut attempt = 0u32;
         let mut adapted = false;
         loop {

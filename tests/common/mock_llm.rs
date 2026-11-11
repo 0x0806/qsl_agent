@@ -181,6 +181,24 @@ fn plan(body: &Value) -> Plan {
             Plan::Text(format!("DENIED={}", last.contains("DENIED")))
         };
     }
+    if task.contains("[mock:skill]") {
+        return match results.len() {
+            0 => Plan::Tools(vec![(
+                "skill_read".into(),
+                json!({"name": "qsl-security-audit"}),
+            )]),
+            1 => Plan::Tools(vec![(
+                "skill_read".into(),
+                json!({"name": "qsl-security-audit", "file": "HUNTING.md"}),
+            )]),
+            _ => Plan::Text(format!(
+                "SKILL_OK={}",
+                results[0].contains("part 1/")
+                    && results[0].contains("Skill directory:")
+                    && results[1].contains("HUNTING.md")
+            )),
+        };
+    }
     if task.contains("[mock:shell]") {
         return if results.is_empty() {
             Plan::Tools(vec![(
