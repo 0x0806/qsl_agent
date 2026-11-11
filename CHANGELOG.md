@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.6.0 (2026-11-11)
+
+### Added
+
+- **QSL Security Audit** (`qsl-security-audit`): a bundled, multi-file skill for source-first security audits (reconnaissance, coverage-led hunting, adversarial validation, schema-checked findings, report), with two zero-dependency Node.js validators and a JSON schema. Adapted to QSL Agent's tools (`delegate_task` as the delegation mechanism) and honest about its limits: no OS sandbox ships with the agent, so target code is not executed and such leads stay `needs_validation`. Derived from an MIT-licensed upstream skill; licence text in `THIRD_PARTY_NOTICES.md` and beside the skill files.
+- Folder skills: skills can now ship companion files. They are embedded in the binary, seeded to `<vault>/QSL_Agent/Skills/<name>/`, and refreshed on upgrade when the copy carries `managed: qsl-agent` (remove the `managed: qsl-agent` line from a copy you want to keep editing; copies without the marker are never overwritten).
+- `skill_read` accepts `file` (a companion file, path-confined to the skill directory) and `part` (pages of 9,000 characters, so long skills fit the tool-output limit). A pinned skill (`/use`) is capped at 6,000 characters in the system prompt.
+- `/about` command and a long `--version` with company, copyright and licence information.
+- `scripts/gen_logo.py` (the QSL "Split state" mark as terminal half-block art) and `scripts/capture_ui.py` (real screenshots of the binary through a pseudo-terminal, a terminal emulator and headless Chromium). Screenshots are in `docs/screenshots/`.
+
+- **Hosted frontier models, opt-in.** `/provider openai|anthropic|gemini|openrouter` (and `--provider`) select ChatGPT, Claude, Gemini or OpenRouter models. Any non-local endpoint, including `custom` URLs, now requires an explicit data-sharing consent: a notice naming the company and host, typed `yes`, remembered per host in `cloud_consent`. The client sends nothing to an unapproved remote host. Headless runs and `--serve` exit with code 2 unless `--accept-cloud` / `QSL_ACCEPT_CLOUD=1` is given (that run only). Keys are read from the environment and are never saved. Tool output is secret-masked before it is sent to a hosted model. The banner shows when data is being sent to a hosted host. Vendor data-handling notes were checked against the vendors' documentation on 2026-11-11 and are in the README.
+- Config keys from the environment or `--api-key` are no longer written back to `config.toml` when the REPL saves settings.
+
+### Changed
+
+- New start-up screen: the QSL mark beside engine, model, context, approval and skills, the company line and a copyright line. Two-colour palette from the QSL brand kit (terminal foreground plus accent `#ff8a3d`, with 256-colour and 16-colour fallbacks) replaces the cyan/green/magenta box. Terminals narrower than 74 columns get a compact header. Action cards, the prompt and the skills table use the accent colour; green, yellow and red remain for OK, warning and error.
+- The built-in `security-audit` skill now points to `qsl-security-audit` for full audits.
+
+### Tests
+
+- 99 unit tests (was 82): brand mark geometry and colour detection, folder-skill seeding, paging, path confinement, managed upgrade, pin cap. `build-test/test.sh` also runs the bundled validators' own 65 tests when Node.js is available.
+
 ## v0.5.1 (2026-11-07)
 
 ### Added

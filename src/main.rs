@@ -1,9 +1,11 @@
 mod agent;
 mod approval;
+mod brand;
 mod checkpoint;
 mod cli;
 mod config;
 mod context;
+mod frontier;
 mod interrupt;
 mod memory;
 mod provider;
@@ -13,6 +15,7 @@ mod session;
 mod sizing;
 mod skills;
 mod skills_builtin;
+mod skills_bundle;
 mod tools;
 mod ui;
 mod util;
@@ -29,6 +32,7 @@ use crate::config::{ApprovalMode, Config};
 #[command(
     name = "qsl-agent",
     version,
+    long_version = concat!(env!("CARGO_PKG_VERSION"), "\nQuantum Secular Labs - https://quantumseclabs.com/\n(c) 2026 Quantum Secular Labs. All rights reserved.\nLicence: QSL Team Source-Available License v1.0 (2026); third-party notices: THIRD_PARTY_NOTICES.md"),
     author = "Quantum Secular Labs <https://quantumseclabs.com/>",
     about = "QSL Agent — fast, local-first autonomous AI agent with Obsidian memory",
     after_help = "Examples:\n  qsl-agent                                   interactive REPL\n  qsl-agent \"summarise this repo\"              one-shot task\n  git diff | qsl-agent -P - \"review this\"       read the prompt from stdin\n  qsl-agent -C                                continue the last session\n  qsl-agent --serve 127.0.0.1:8765            HTTP API"
@@ -57,6 +61,10 @@ struct Args {
     /// API key for remote OpenAI-compatible endpoints
     #[arg(long, env = "QSL_API_KEY", hide_env_values = true)]
     api_key: Option<String>,
+
+    /// Accept, for this run only, that a hosted (non-local) engine receives your prompts, files read and command output
+    #[arg(long, env = "QSL_ACCEPT_CLOUD")]
+    accept_cloud: bool,
 
     /// Path to the Obsidian vault
     #[arg(short, long)]
@@ -276,7 +284,49 @@ async fn main() {
         ui::set_quiet(true);
     }
 
+    let mut consent_accepted_now = false;
+    if cfg.is_remote() && !cfg.has_cloud_consent() {
+        let host = cfg.endpoint_host();
+        if args.accept_cloud {
+            cfg.session_consent.push(host);
+        } else if interactive && std::io::stdout().is_terminal() {
+            let (company, product, note) = frontier::preset(&cfg.provider).map_or(
+                (host.clone(), "a remote endpoint".to_string(), String::new()),
+                |p| {
+                    (
+                        p.company.to_string(),
+                        p.product.to_string(),
+                        p.note.to_string(),
+                    )
+                },
+            );
+            if !ui::cloud_notice(&frontier::disclaimer(&company, &host, &product, &note)) {
+                eprintln!("error: not approved; nothing was sent. Use `--provider ollama` for a local engine.");
+                std::process::exit(1);
+            }
+            cfg.cloud_consent.push(host);
+            consent_accepted_now = true;
+        } else {
+            eprintln!(
+                "error: the engine {host} is hosted, so your prompts, files and command output would be sent to it. Re-run with --accept-cloud (or QSL_ACCEPT_CLOUD=1) to accept that, or use a local engine."
+            );
+            std::process::exit(2);
+        }
+    }
+    if let Some(p) = frontier::preset(&cfg.provider) {
+        if cfg.resolved_api_key().is_none() {
+            eprintln!(
+                "error: no API key for {}. Set {} in the environment.",
+                p.company, p.key_env
+            );
+            std::process::exit(2);
+        }
+    }
+
     let mut agent = agent::Agent::new(cfg, loaded.path.clone(), interactive);
+    if consent_accepted_now {
+        agent.persist_config();
+    }
 
     if args.list_sessions {
         let list = agent.store.list(50);

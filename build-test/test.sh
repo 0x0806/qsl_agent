@@ -15,4 +15,10 @@ section "Unit + end-to-end tests (cargo test)"
 if cargo test 2>&1 | tee "$OUT_DIR/test.log" | grep -E "^test result|FAILED|panicked"; then :; fi
 if grep -q "FAILED\|error\[" "$OUT_DIR/test.log"; then fail "cargo test (see build-test/out/test.log)"; else ok "all cargo tests passed"; fi
 
+section "Bundled skill validators (node --test)"
+if command -v node >/dev/null 2>&1; then
+  if node --test src/skills_bundles/qsl-security-audit/*.test.cjs >"$OUT_DIR/skill-validators.log" 2>&1; then ok "QSL Security Audit validators pass"
+  else fail "skill validator tests (see build-test/out/skill-validators.log)"; fi
+else note "node not found: skipped (needed only for full security-audit mode)"; fi
+
 [ "$FAILURES" -eq 0 ] && { echo; ok "test.sh: all checks passed"; } || { echo; fail "test.sh: $FAILURES check(s) failed"; exit 1; }
