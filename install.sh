@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# QSL Agent installer for Linux and macOS.
+# QSL Agent installer for Linux and macOS - Quantum Secular Labs (https://www.quantumsecularlabs.com/)
 #
 #   curl -fsSL https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.sh | bash
 #
 # Installs the `qsl-agent` binary plus a `qslagent` command (same program) so
 # either name works from any shell. Options (after `bash -s --` when piping):
-#   --version <tag>   install a specific release (e.g. v0.5.0); default: latest
+#   --version <tag>   install a specific release (e.g. v0.6.0); default: latest
 #   --prefix <dir>    install into <dir> instead of the default location
 #   --user            install for the current user only (~/.local/bin)
 #   --from-source     skip the prebuilt binary and build with cargo
@@ -29,7 +29,27 @@ info() { printf '%s==>%s %s\n' "$B" "$Z" "$*"; }
 ok()   { printf '%s ok%s %s\n' "$G" "$Z" "$*"; }
 warn() { printf '%swarn%s %s\n' "$Y" "$Z" "$*" >&2; }
 die()  { printf '%serror%s %s\n' "$R" "$Z" "$*" >&2; exit 1; }
-usage() { sed -n '2,15p' "${BASH_SOURCE[0]:-$0}" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0; }
+usage() {
+  cat <<'USAGE'
+QSL Agent installer for Linux and macOS - Quantum Secular Labs
+https://www.quantumsecularlabs.com/qsl-agent
+
+Usage:
+  curl -fsSL https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.sh | bash -s -- [options]
+
+Options:
+  --version <tag>   install a specific release (e.g. v0.6.0); default: latest
+  --prefix <dir>    install into <dir> instead of the default location
+  --user            install for the current user only (~/.local/bin)
+  --from-source     skip the prebuilt binary and build with cargo
+  --uninstall       remove QSL Agent (config and vault are left untouched)
+  -h, --help        show this help
+
+Environment: QSL_VERSION, QSL_PREFIX, QSL_BASE_URL (download mirror override).
+USAGE
+  exit 0
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -189,6 +209,8 @@ Next steps:
   1. Start a local model server (e.g. Ollama: https://ollama.com).
   2. Run:  qslagent --health-check
   3. Run:  qslagent
+  Help:    qslagent --help   (or /help inside the REPL)
+  Website: https://www.quantumsecularlabs.com/qsl-agent
 
 Uninstall:  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash -s -- --uninstall
 MSG

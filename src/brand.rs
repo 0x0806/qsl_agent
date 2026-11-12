@@ -12,9 +12,9 @@ use colored::{Color, ColoredString, Colorize};
 use std::sync::OnceLock;
 
 pub const COMPANY: &str = "Quantum Secular Labs";
-pub const WEBSITE: &str = "https://quantumseclabs.com/";
+pub const WEBSITE: &str = "https://www.quantumsecularlabs.com/";
 pub const PRODUCT_PAGE: &str = "https://www.quantumsecularlabs.com/qsl-agent";
-pub const SUPPORT_EMAIL: &str = "support@quantumseclabs.com";
+pub const SUPPORT_EMAIL: &str = "support@quantumsecularlabs.com";
 pub const REPOSITORY: &str = "https://github.com/0x0806/qsl_agent";
 pub const TAGLINE: &str = "Local-first autonomous AI agent";
 pub const COPYRIGHT: &str = "\u{a9} 2026 Quantum Secular Labs. All rights reserved.";

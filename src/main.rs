@@ -32,10 +32,10 @@ use crate::config::{ApprovalMode, Config};
 #[command(
     name = "qsl-agent",
     version,
-    long_version = concat!(env!("CARGO_PKG_VERSION"), "\nQuantum Secular Labs - https://quantumseclabs.com/\n(c) 2026 Quantum Secular Labs. All rights reserved.\nLicence: QSL Team Source-Available License v1.0 (2026); third-party notices: THIRD_PARTY_NOTICES.md"),
-    author = "Quantum Secular Labs <https://quantumseclabs.com/>",
+    long_version = concat!(env!("CARGO_PKG_VERSION"), "\nQuantum Secular Labs - https://www.quantumsecularlabs.com/\n(c) 2026 Quantum Secular Labs. All rights reserved.\nLicence: QSL Team Source-Available License v1.0 (2026); third-party notices: THIRD_PARTY_NOTICES.md"),
+    author = "Quantum Secular Labs <https://www.quantumsecularlabs.com/>",
     about = "QSL Agent — fast, local-first autonomous AI agent with Obsidian memory",
-    after_help = "Examples:\n  qsl-agent                                   interactive REPL\n  qsl-agent \"summarise this repo\"              one-shot task\n  git diff | qsl-agent -P - \"review this\"       read the prompt from stdin\n  qsl-agent -C                                continue the last session\n  qsl-agent --serve 127.0.0.1:8765            HTTP API"
+    after_help = "Examples:\n  qsl-agent                                   interactive REPL\n  qsl-agent \"summarise this repo\"              one-shot task\n  git diff | qsl-agent -P - \"review this\"       read the prompt from stdin\n  qsl-agent -C                                continue the last session\n  qsl-agent --serve 127.0.0.1:8765            HTTP API\n\nHelp inside the REPL: /help (commands), /about (company & licence)\nWebsite: https://www.quantumsecularlabs.com/ \u{b7} Product: https://www.quantumsecularlabs.com/qsl-agent"
 )]
 struct Args {
     /// Prompt words for a one-shot task (same as -P)
@@ -50,7 +50,7 @@ struct Args {
     #[arg(short, long)]
     model: Option<String>,
 
-    /// Provider: ollama, lmstudio, custom
+    /// Engine: ollama, lmstudio, custom (local) or openai, anthropic, gemini, openrouter (hosted, needs consent)
     #[arg(short, long)]
     provider: Option<String>,
 

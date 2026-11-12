@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-  QSL Agent installer for Windows (PowerShell 5.1+ / 7+).
+  QSL Agent installer for Windows (PowerShell 5.1+ / 7+) - Quantum Secular Labs
+  https://www.quantumsecularlabs.com/qsl-agent
 
 .DESCRIPTION
   Installs qsl-agent.exe plus a qslagent.exe copy so either command works from
@@ -11,7 +12,10 @@
   irm https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.ps1 | iex
 
   With options:
-  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.ps1))) -Version v0.5.0
+  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/0x0806/qsl_agent/main/install.ps1))) -Version v0.6.0
+
+  Options: -Version <tag>  -Prefix <dir>  -User  -FromSource  -Uninstall
+  Help: Get-Help .\install.ps1 -Full
 #>
 [CmdletBinding()]
 param(
@@ -143,6 +147,8 @@ try {
   Write-Host 'Open a NEW terminal, then:'
   Write-Host '  qslagent --health-check'
   Write-Host '  qslagent'
+  Write-Host '  qslagent --help   (or /help inside the REPL)'
+  Write-Host 'Website: https://www.quantumsecularlabs.com/qsl-agent'
   Write-Host ''
   Write-Host "Uninstall: & ([scriptblock]::Create((irm https://raw.githubusercontent.com/$Repo/main/install.ps1))) -Uninstall"
 }

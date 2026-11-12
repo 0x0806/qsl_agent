@@ -24,7 +24,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/health", "Run the health & connectivity check"),
     ("/models", "List models on the active engine"),
     ("/model", "<name>  Switch the active model"),
-    ("/provider", "<ollama|lmstudio|custom> [url]  Switch engine"),
+    ("/provider", "<name> [url]  Switch engine (/provider lists them)"),
     (
         "/approval",
         "<ask|always|strict|yolo>  Change approval mode",
@@ -528,15 +528,22 @@ async fn handle_command(input: &str, agent: &mut Agent) -> bool {
                     Some((a, rest)) if a.starts_with('<') || a.starts_with('[') => (a, rest),
                     _ => ("", *d),
                 };
-                ui::plain(&format!(
-                    "  {:<40} {}",
-                    format!("{} {}", c.yellow().bold(), args.dimmed()),
-                    desc
-                ));
+                // Pad on the visible width (colour codes must not count), and
+                // keep long usage text on its own line so columns stay aligned.
+                let plain = format!("{c} {args}");
+                let plain_w = plain.trim_end().chars().count();
+                let colored = format!("{} {}", c.yellow().bold(), args.dimmed());
+                if plain_w > 36 {
+                    ui::plain(&format!("  {colored}"));
+                    ui::plain(&format!("  {:<38}{}", "", desc));
+                } else {
+                    let pad = " ".repeat(38usize.saturating_sub(plain.chars().count()));
+                    ui::plain(&format!("  {colored}{pad}{desc}"));
+                }
             }
             ui::plain(&format!(
                 "\n{}\n  {}\n  {}\n  {}\n",
-                "INPUT".bold().cyan(),
+                crate::brand::accent("INPUT").bold(),
                 "End a line with \\ or wrap text in \"\"\" for multi-line prompts. Start with // to send a literal '/'.",
                 "Ctrl+C interrupts the running turn (twice = force quit). Tab completes commands.",
                 "Approvals: [y] once, [a] session, [n] deny, [d] deny for session. Enter = deny."

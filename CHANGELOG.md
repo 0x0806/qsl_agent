@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Company website is now https://www.quantumsecularlabs.com/ everywhere (CLI, `--version`, `/about`, README, licence, installers, Cargo metadata); support address is support@quantumsecularlabs.com.
+- Installers: `install.sh --help` now prints a proper usage text (it printed a stray script line and failed when piped); both installers show website and help hints, and examples reference v0.6.0.
+- Help: `--provider` and `/provider` now list the hosted engines; `/help` columns stay aligned (padding ignored colour codes before); `--help` shows website and in-REPL help pointers.
+- Regenerated all screenshots in `docs/screenshots/` from the current binary.
+
 ## v0.6.0 (2026-11-11)
 
 ### Added

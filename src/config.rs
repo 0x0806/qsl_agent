@@ -413,7 +413,7 @@ impl Config {
         let body = toml::to_string_pretty(&persisted).map_err(std::io::Error::other)?;
         let header = "# =============================================================================\n\
                       # QSL Agent Configuration (v0.5)\n\
-                      # Developed by Quantum Secular Labs (https://quantumseclabs.com/)\n\
+                      # Developed by Quantum Secular Labs (https://www.quantumsecularlabs.com/)\n\
                       # Every key is optional; see config.example.toml in the repository.\n\
                       # =============================================================================\n\n";
         let tmp = path.with_extension("toml.tmp");

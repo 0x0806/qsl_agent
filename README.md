@@ -13,7 +13,7 @@
 
 It runs on your own model (Ollama, LM Studio, llama.cpp, vLLM, or any OpenAI-compatible server) and, if you choose and accept a data-sharing notice, on hosted frontier models (OpenAI, Anthropic, Google, OpenRouter). It acts on your machine through guarded tools (approval gates and a SecurityGuard), and keeps its long-term memory as plain Markdown in your Obsidian vault.
 
-Developed by **[Quantum Secular Labs](https://quantumseclabs.com/)** · [Changelog](CHANGELOG.md) · [Build & test kit](build-test/README.md)
+Developed by **[Quantum Secular Labs](https://www.quantumsecularlabs.com/)** · [Changelog](CHANGELOG.md) · [Build & test kit](build-test/README.md)
 
 </div>
 
@@ -173,7 +173,7 @@ qsl-agent -r 2            # resume session #2 from /sessions
 ```text
                              QSL Agent v0.6.0
       ▄▄██     ▄▄▄▄          Local-first autonomous AI agent
-   ▄████▀  ▄▄████████▄       by Quantum Secular Labs · https://quantumseclabs.com
+   ▄████▀  ▄▄████████▄       by Quantum Secular Labs · https://www.quantumsecularlabs.com
   ▄███▀    ▀▀   ▀▀▀████▄
   ████              ▀████    engine    ollama (http://127.0.0.1:11434/api/chat)
   ████               ▀███▄   model     qwen2.5-coder:7b · Small (<=9B)
@@ -692,7 +692,7 @@ All are picked up unchanged. Skills you edited are never overwritten by the buil
 
 ## About Quantum Secular Labs
 
-**[Quantum Secular Labs](https://quantumseclabs.com/)** (QuantumSec Labs) is a specialized cybersecurity and technology engineering firm focused on digital infrastructure defense, enterprise vulnerability assessment and penetration testing (VAPT), offensive security auditing, and applied Artificial Intelligence research.
+**[Quantum Secular Labs](https://www.quantumsecularlabs.com/)** (QuantumSec Labs) is a specialized cybersecurity and technology engineering firm focused on digital infrastructure defense, enterprise vulnerability assessment and penetration testing (VAPT), offensive security auditing, and applied Artificial Intelligence research.
 
 QSL engineered **QSL Agent** to directly eliminate the security vulnerabilities, secret leakage, and compliance hazards inherent in cloud-tethered AI tools. By uniting defensive cybersecurity principles with native Rust systems engineering, QSL Agent provides developers, security auditors, and enterprises with an autonomous, sovereign local intelligence engine purpose-built for zero-trust environments.
 
@@ -700,9 +700,9 @@ QSL engineered **QSL Agent** to directly eliminate the security vulnerabilities,
 
 ## License
 
-QSL Agent is released under the **[QSL Team Source-Available License v1.0 (2026)](LICENSE)** by **[Quantum Secular Labs](https://quantumseclabs.com/)**.
+QSL Agent is released under the **[QSL Team Source-Available License v1.0 (2026)](LICENSE)** by **[Quantum Secular Labs](https://www.quantumsecularlabs.com/)**.
 
 - **Source-Available**: You may view, inspect, audit, compile, and run the software locally on your own hardware for personal, academic, or internal operational use.
 - **Strictly Non-Redistributable**: You may **NOT** redistribute, resell, mirror, syndicate, sub-license, fork publicly, or distribute pre-compiled binaries or packages to any third party without explicit prior written authorization from Quantum Secular Labs.
-- **Commercial & Cloud Exclusivity**: Providing QSL Agent as a hosted service (SaaS/PaaS/API wrapper) or commercial redistribution is reserved exclusively to **[Quantum Secular Labs](https://quantumseclabs.com/)**.
+- **Commercial & Cloud Exclusivity**: Providing QSL Agent as a hosted service (SaaS/PaaS/API wrapper) or commercial redistribution is reserved exclusively to **[Quantum Secular Labs](https://www.quantumsecularlabs.com/)**.
 - **All Rights Reserved**: All copyrights, patents, and distribution rights remain solely with Quantum Secular Labs.
